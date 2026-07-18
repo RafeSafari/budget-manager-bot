@@ -158,6 +158,10 @@ export function deleteTransaction(id: number, chatId: number): boolean {
   return changes > 0;
 }
 
+export function debugAllTransactions(): any[] {
+  return queryAll('SELECT id, chat_id, user_id, username, amount, currency, category, type, created_at FROM transactions ORDER BY id DESC');
+}
+
 export function closeDatabase(): void {
   if (db) {
     saveDatabase();

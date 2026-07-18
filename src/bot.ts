@@ -1,6 +1,6 @@
 import { Bot, Context } from 'grammy';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction } from './database';
+import { insertTransaction, deleteTransaction, debugAllTransactions } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
@@ -98,6 +98,19 @@ bot.command('delete', async (ctx) => {
   } else {
     ctx.reply(`❌ تراکنش #${id} یافت نشد.\nTransaction #${id} not found.`);
   }
+});
+
+// Handle /debug command
+bot.command('debug', async (ctx) => {
+  const rows = debugAllTransactions();
+  if (rows.length === 0) {
+    return ctx.reply('DB is empty.');
+  }
+  let msg = `DB has ${rows.length} transactions:\n\n`;
+  for (const r of rows) {
+    msg += `#${r.id} | chat=${r.chat_id} | ${r.username} | ${r.amount} ${r.currency} | ${r.category} | ${r.type} | ${r.created_at}\n`;
+  }
+  ctx.reply(msg);
 });
 
 // Handle group messages

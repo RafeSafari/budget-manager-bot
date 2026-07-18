@@ -122,9 +122,9 @@ bot.on('message:text', async (ctx) => {
   monitoredChats.add(chatId);
 
   try {
-    console.log(`[AI] Categorizing: "${ctx.message.text}"`);
+    console.log(`[MSG] Processing: "${ctx.message.text}"`);
     const result = await categorizeMessage(ctx.message.text);
-    console.log(`[AI] Result:`, JSON.stringify(result));
+    console.log(`[MSG] Result:`, JSON.stringify(result));
 
     if (result.isTransaction && result.amount > 0) {
       const now = new Date().toISOString();
@@ -165,10 +165,10 @@ bot.on('message:text', async (ctx) => {
         `توضیحات / Description: ${result.description || '—'}`
       );
     } else {
-      console.log(`[AI] Not a transaction, skipping.`);
+      console.log(`[MSG] Not a transaction, skipping.`);
     }
   } catch (error) {
-    console.error('[AI] Error processing message:', error);
+    console.error('[MSG] Error:', error);
   }
 });
 

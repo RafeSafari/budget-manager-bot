@@ -60,22 +60,33 @@ export async function initDatabase(): Promise<void> {
 }
 
 function saveDatabase(): void {
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(DB_PATH, buffer);
+  try {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(DB_PATH, buffer);
+    console.log(`[DB] Saved to ${DB_PATH} (${buffer.length} bytes)`);
+  } catch (error) {
+    console.error('[DB] SAVE FAILED:', error);
+  }
 }
 
 export function insertTransaction(t: Omit<Transaction, 'id'>): number {
-  db.run(
-    `INSERT INTO transactions (chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [t.chat_id, t.user_id, t.username, t.amount, t.currency, t.category, t.type, t.description, t.original_message, t.created_at]
-  );
+  try {
+    db.run(
+      `INSERT INTO transactions (chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [t.chat_id, t.user_id, t.username, t.amount, t.currency, t.category, t.type, t.description, t.original_message, t.created_at]
+    );
 
-  const result = db.exec('SELECT last_insert_rowid() as id');
-  const id = result[0]?.values[0]?.[0] as number;
-  saveDatabase();
-  return id;
+    const result = db.exec('SELECT last_insert_rowid() as id');
+    const id = result[0]?.values[0]?.[0] as number;
+    saveDatabase();
+    console.log(`[DB] Inserted transaction #${id}`);
+    return id;
+  } catch (error) {
+    console.error('[DB] INSERT FAILED:', error);
+    return -1;
+  }
 }
 
 function queryAll(sql: string, params: any[] = []): any[] {

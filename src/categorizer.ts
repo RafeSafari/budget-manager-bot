@@ -122,16 +122,18 @@ function regexParse(message: string): CategorizationResult | null {
   // Parse amount
   let amount = 0;
 
-  // Try to find "X هزار" pattern
-  const hazarMatch = text.match(/(\d+)\s*(?:هزار)/);
-  if (hazarMatch) {
-    amount = parseInt(hazarMatch[1]) * 1000;
+  // Try "X m/million/میلیون" pattern
+  const millionMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:m\b|million|میلیون)/i);
+  if (millionMatch) {
+    amount = parseFloat(millionMatch[1]) * 1000000;
   }
 
-  // Try "X میلیون" pattern
-  const millionMatch = text.match(/(\d+)\s*(?:میلیون)/);
-  if (millionMatch) {
-    amount = parseInt(millionMatch[1]) * 1000000;
+  // Try "X k/thousand/هزار" pattern
+  if (amount === 0) {
+    const hazarMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:k\b|thousand|هزار)/i);
+    if (hazarMatch) {
+      amount = parseFloat(hazarMatch[1]) * 1000;
+    }
   }
 
   // Try plain number with currency word

@@ -111,7 +111,7 @@ Press `Ctrl+C` to stop the bot.
 ### 5a. Install Railway CLI
 
 ```bash
-pnpm install -g @railway/cli
+npm install -g @railway/cli
 ```
 
 ### 5b. Login to Railway

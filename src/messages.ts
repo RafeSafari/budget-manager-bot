@@ -125,6 +125,22 @@ const MESSAGES: Record<string, Record<Lang, string>> = {
     fa: 'حذف شد',
     en: 'Deleted',
   },
+  category_label: {
+    fa: 'دسته',
+    en: 'Category',
+  },
+  description_label: {
+    fa: 'توضیحات',
+    en: 'Description',
+  },
+  user_label: {
+    fa: 'کاربر',
+    en: 'User',
+  },
+  amount_label: {
+    fa: 'مبلغ',
+    en: 'Amount',
+  },
   budget_set: {
     fa: 'بودجه تنظیم شد.',
     en: 'Budget set.',
@@ -147,6 +163,25 @@ const MESSAGES: Record<string, Record<Lang, string>> = {
   },
 };
 
+const CATEGORY_NAMES: Record<string, Record<Lang, string>> = {
+  Food: { fa: 'غذا', en: 'Food' },
+  Transport: { fa: 'حمل‌ونقل', en: 'Transport' },
+  Shopping: { fa: 'خرید', en: 'Shopping' },
+  Bills: { fa: 'قبض', en: 'Bills' },
+  Entertainment: { fa: 'سرگرمی', en: 'Entertainment' },
+  Health: { fa: 'سلامت', en: 'Health' },
+  Education: { fa: 'آموزش', en: 'Education' },
+  Salary: { fa: 'حقوق', en: 'Salary' },
+  Freelance: { fa: 'فریلنسری', en: 'Freelance' },
+  Gift: { fa: 'هدیه', en: 'Gift' },
+  Refund: { fa: 'بازپرداخت', en: 'Refund' },
+  Other: { fa: 'سایر', en: 'Other' },
+};
+
 export function msg(key: string, lang: Lang = 'fa'): string {
   return MESSAGES[key]?.[lang] || MESSAGES[key]?.['fa'] || key;
+}
+
+export function catName(category: string, lang: Lang = 'fa'): string {
+  return CATEGORY_NAMES[category]?.[lang] || category;
 }

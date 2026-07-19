@@ -3,7 +3,7 @@ import cron from 'node-cron';
 import { categorizeMessage } from './categorizer';
 import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll, getCategories, setBudget, getBudgets, getBudget, deleteBudget, getSpentThisMonth, setAutoSummary, getAutoSummary, getAllEnabledAutoSummaries } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
-import { msg } from './messages';
+import { msg, catName } from './messages';
 import { learnFromCorrection } from './categorizer';
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
@@ -90,9 +90,9 @@ bot.command('delete', async (ctx) => {
     ctx.reply(
       `${emoji} ❌ #${txToDelete.id} ${msg('deleted_label', lang)}\n\n` +
       `${typeLabel} | ${txToDelete.amount} ${txToDelete.currency}\n` +
-      `Category: ${txToDelete.category}\n` +
-      `Description: ${txToDelete.description || '—'}\n` +
-      `User: ${txToDelete.username}`,
+      `${msg('category_label', lang)}: ${catName(txToDelete.category, lang)}\n` +
+      `${msg('description_label', lang)}: ${txToDelete.description || '—'}\n` +
+      `${msg('user_label', lang)}: ${txToDelete.username}`,
       { reply_markup: keyboard }
     );
   }
@@ -311,9 +311,9 @@ bot.on('message:text', async (ctx) => {
       await ctx.reply(
         `${emoji} ${msg('tx_recorded', lang)} (#${txId})\n\n` +
         `${msg('type_expense', lang)}/${msg('type_income', lang)}: ${typeLabel}\n` +
-        `Amount: ${amountStr}\n` +
-        `Category: ${result.category}\n` +
-        `Description: ${result.description || '—'}`,
+        `${msg('amount_label', lang)}: ${amountStr}\n` +
+        `${msg('category_label', lang)}: ${catName(result.category, lang)}\n` +
+        `${msg('description_label', lang)}: ${result.description || '—'}`,
         { reply_markup: keyboard }
       );
 
@@ -324,11 +324,11 @@ bot.on('message:text', async (ctx) => {
           const pct = budget.amount > 0 ? Math.round((spent.total / budget.amount) * 100) : 0;
           if (pct >= 100) {
             ctx.reply(lang === 'fa'
-              ? `⚠️ بودجه ${result.category} تمام شد!\n${spent.total.toLocaleString('fa-IR')} از ${budget.amount.toLocaleString('fa-IR')} تومان (${pct}%)`
+              ? `⚠️ بودجه ${catName(result.category, lang)} تمام شد!\n${spent.total.toLocaleString('fa-IR')} از ${budget.amount.toLocaleString('fa-IR')} تومان (${pct}%)`
               : `⚠️ Budget for ${result.category} exceeded!\n${spent.total.toLocaleString('fa-IR')} / ${budget.amount.toLocaleString('fa-IR')} IRT (${pct}%)`);
           } else if (pct >= 80) {
             ctx.reply(lang === 'fa'
-              ? `🟡 بودجه ${result.category} رو به اتمام است.\n${spent.total.toLocaleString('fa-IR')} از ${budget.amount.toLocaleString('fa-IR')} تومان (${pct}%)`
+              ? `🟡 بودجه ${catName(result.category, lang)} رو به اتمام است.\n${spent.total.toLocaleString('fa-IR')} از ${budget.amount.toLocaleString('fa-IR')} تومان (${pct}%)`
               : `🟡 Budget for ${result.category} running low.\n${spent.total.toLocaleString('fa-IR')} / ${budget.amount.toLocaleString('fa-IR')} IRT (${pct}%)`);
           }
         }
@@ -366,9 +366,9 @@ bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
     await ctx.editMessageText(
       `${emoji} ❌ #${tx.id} ${msg('deleted_label', lang)}\n\n` +
       `${typeLabel} | ${tx.amount} ${tx.currency}\n` +
-      `Category: ${tx.category}\n` +
-      `Description: ${tx.description || '—'}\n` +
-      `User: ${tx.username}`,
+      `${msg('category_label', lang)}: ${catName(tx.category, lang)}\n` +
+      `${msg('description_label', lang)}: ${tx.description || '—'}\n` +
+      `${msg('user_label', lang)}: ${tx.username}`,
       { reply_markup: keyboard }
     );
   } else {
@@ -395,7 +395,7 @@ bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
 
     const keyboard = new InlineKeyboard();
     for (const cat of cats) {
-      keyboard.text(cat.name, `setcat:${txId}:${cat.name}`).row();
+      keyboard.text(catName(cat.name, lang), `setcat:${txId}:${cat.name}`).row();
     }
 
     await ctx.answerCallbackQuery();
@@ -421,8 +421,8 @@ bot.callbackQuery(/^setcat:(\d+):(.+)$/, async (ctx) => {
       if (tx) {
         learnFromCorrection(tx.original_message, category, tx.type);
       }
-      await ctx.answerCallbackQuery({ text: `✅ ${category}` });
-      await ctx.editMessageText(`✅ #${txId} → ${category}\n${msg('category_changed', lang)}`);
+      await ctx.answerCallbackQuery({ text: `✅ ${catName(category, lang)}` });
+      await ctx.editMessageText(`✅ #${txId} → ${catName(category, lang)}\n${msg('category_changed', lang)}`);
     } else {
       await ctx.answerCallbackQuery({ text: `❌ ${msg('tx_not_found', lang)}`, show_alert: true });
     }
@@ -467,9 +467,9 @@ bot.callbackQuery(/^undo:(.+)$/, async (ctx) => {
   await ctx.editMessageText(
     `${emoji} ${msg('tx_recorded', lang)} (#${txId})\n\n` +
     `${typeLabel} | ${tx.amount} ${tx.currency}\n` +
-    `Category: ${tx.category}\n` +
-    `Description: ${tx.description || '—'}\n` +
-    `User: ${tx.username}`,
+    `${msg('category_label', lang)}: ${catName(tx.category, lang)}\n` +
+    `${msg('description_label', lang)}: ${tx.description || '—'}\n` +
+    `${msg('user_label', lang)}: ${tx.username}`,
     { reply_markup: keyboard }
   );
 });

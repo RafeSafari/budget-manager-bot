@@ -1,9 +1,7 @@
 import { webhookCallback } from 'grammy';
 import { createBot, Env } from './bot';
-import { getAllEnabledAutoSummaries, getLanguage } from './database';
+import { getAllEnabledAutoSummaries } from './database';
 import { generateWeeklyReport } from './reports';
-
-export { Env };
 
 async function handleScheduled(env: Env, scheduledTime: Date): Promise<void> {
   const DB = env.DB;

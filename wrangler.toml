@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "budget-bot-db"
-database_id = "YOUR_D1_DATABASE_ID_HERE"
+database_id = "5a29418c-3be6-4d0c-91da-c12bbfb6d270"
 
 # Cron Triggers - runs every minute to check scheduled summaries
 [triggers]

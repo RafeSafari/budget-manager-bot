@@ -56,6 +56,13 @@ export async function initDatabase(): Promise<void> {
   db.run('CREATE INDEX IF NOT EXISTS idx_category ON transactions(category)');
   db.run('CREATE INDEX IF NOT EXISTS idx_type ON transactions(type)');
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS settings (
+      chat_id INTEGER PRIMARY KEY,
+      language TEXT DEFAULT 'fa'
+    )
+  `);
+
   saveDatabase();
 }
 
@@ -170,6 +177,17 @@ export function getLastTransaction(chatId: number): Transaction | null {
 
 export function debugAllTransactions(): any[] {
   return queryAll('SELECT id, chat_id, user_id, username, amount, currency, category, type, created_at FROM transactions ORDER BY id DESC');
+}
+
+export function getLanguage(chatId: number): 'fa' | 'en' {
+  const rows = queryAll('SELECT language FROM settings WHERE chat_id = ?', [chatId]);
+  if (rows.length > 0 && rows[0].language === 'en') return 'en';
+  return 'fa';
+}
+
+export function setLanguage(chatId: number, lang: string): void {
+  db.run('INSERT OR REPLACE INTO settings (chat_id, language) VALUES (?, ?)', [chatId, lang]);
+  saveDatabase();
 }
 
 export function closeDatabase(): void {

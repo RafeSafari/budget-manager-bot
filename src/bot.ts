@@ -1,136 +1,100 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction, getLastTransaction, debugAllTransactions } from './database';
+import { insertTransaction, deleteTransaction, getLastTransaction, debugAllTransactions, getLanguage, setLanguage } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
+import { msg } from './messages';
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
-
 const monitoredChats = new Set<number>();
 
-// Handle /start command
 bot.command('start', (ctx) => {
-  ctx.reply(
-    '🤖 ربات مدیریت بودجه / Budget Manager Bot\n\n' +
-    'این ربات هزینه‌ها و درآمدهای گروه را ردیابی می‌کند.\n' +
-    'This bot tracks expenses and earnings in this group.\n\n' +
-    'دستورات / Commands:\n' +
-    '/weekly - گزارش هفتگی / Weekly report\n' +
-    '/monthly - گزارش ماهانه / Monthly report\n' +
-    '/list - لیست تراکنش‌ها / List transactions\n' +
-    '/delete <id> - حذف تراکنش / Delete a transaction\n' +
-    '/help - راهنما / Help\n\n' +
-    'مثال / Examples:\n' +
-    '• "50 هزار خرج غذا" 💸\n' +
-    '• "200 تومان تاکسی" 💸\n' +
-    '• "Spent 50 on food" 💸\n' +
-    '• "حقوق 5 میلیون تومان" 💰'
-  );
+  const lang = getLanguage(ctx.chat?.id || 0);
+  ctx.reply(msg('welcome', lang));
 });
 
-// Handle /help command
 bot.command('help', (ctx) => {
-  ctx.reply(
-    '📋 راهنمای دستورات / Commands:\n\n' +
-    '/weekly - گزارش هفتگی / Weekly expense report\n' +
-    '/monthly - گزارش ماهانه / Monthly expense report\n' +
-    '/list - لیست تراکنش‌ها / List transactions\n' +
-    '/delete <id> - حذف تراکنش / Delete transaction\n\n' +
-    '💡 پیام‌های ردیابی شده / Tracked messages:\n\n' +
-    'فارسی:\n' +
-    '• "50 هزار خرج غذا" (هزینه)\n' +
-    '• "200 تومان تاکسی" (هزینه)\n' +
-    '• "حقوق 5 میلیون تومان" (درآمد)\n' +
-    '• "1 میلیون ریال شارژ" (هزینه)\n\n' +
-    'English:\n' +
-    '• "Spent 50 on groceries" (expense)\n' +
-    '• "Paid 30 for taxi" (expense)\n' +
-    '• "Earned 500 freelance" (income)\n' +
-    '• "Got 100 as gift" (income)'
-  );
+  const lang = getLanguage(ctx.chat?.id || 0);
+  ctx.reply(msg('help', lang));
 });
 
-// Handle /weekly command
+bot.command('lang', (ctx) => {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+  const args = ctx.message?.text?.split(' ');
+  const langArg = args?.[1]?.toLowerCase();
+  if (langArg === 'fa' || langArg === 'en') {
+    setLanguage(chatId, langArg);
+    ctx.reply(msg('lang_switched', langArg));
+  } else {
+    const currentLang = getLanguage(chatId);
+    ctx.reply(msg('lang_current', currentLang));
+  }
+});
+
 bot.command('weekly', (ctx) => {
   const chatId = ctx.chat?.id;
-  if (!chatId) return ctx.reply('این دستور فقط در گروه کار می‌کند.\nThis command can only be used in a group.');
-
+  if (!chatId) return ctx.reply(msg('group_only', getLanguage(0)));
   const report = generateWeeklyReport(chatId);
   ctx.reply(report);
 });
 
-// Handle /monthly command
 bot.command('monthly', (ctx) => {
   const chatId = ctx.chat?.id;
-  if (!chatId) return ctx.reply('این دستور فقط در گروه کار می‌کند.\nThis command can only be used in a group.');
-
+  if (!chatId) return ctx.reply(msg('group_only', getLanguage(0)));
   const report = generateMonthlyReport(chatId);
   ctx.reply(report);
 });
 
-// Handle /list command
 bot.command('list', (ctx) => {
   const chatId = ctx.chat?.id;
-  if (!chatId) return ctx.reply('این دستور فقط در گروه کار می‌کند.\nThis command can only be used in a group.');
-
+  if (!chatId) return ctx.reply(msg('group_only', getLanguage(0)));
   const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const startDate = `${y}-${m}-01`;
-
   const list = generateTransactionList(chatId, startDate);
   ctx.reply(list);
 });
 
-// Handle /delete command
 bot.command('delete', async (ctx) => {
   const chatId = ctx.chat?.id;
-  if (!chatId) return ctx.reply('این دستور فقط در گروه کار می‌کند.\nThis command can only be used in a group.');
-
+  if (!chatId) return ctx.reply(msg('group_only', getLanguage(0)));
+  const lang = getLanguage(chatId);
   const args = ctx.message?.text?.split(' ');
   const arg = args && args.length > 1 ? args[1].toLowerCase() : '';
 
-  // /delete last or /delete latest
   if (arg === 'last' || arg === 'latest') {
     const last = getLastTransaction(chatId);
-    if (!last) {
-      return ctx.reply('تراکنشی وجود ندارد.\nNo transactions found.');
-    }
+    if (!last) return ctx.reply(msg('no_tx_to_delete', lang));
     const success = deleteTransaction(last.id, chatId);
     if (success) {
       const emoji = last.type === 'expense' ? '💸' : '💰';
-      ctx.reply(`${emoji} آخرین تراکنش حذف شد:\nLast transaction deleted:\n\n#${last.id} | ${last.username} | ${last.amount} ${last.currency} | ${last.category}`);
+      ctx.reply(`${emoji} ${msg('last_tx_deleted', lang)}\n#${last.id} | ${last.username} | ${last.amount} ${last.currency} | ${last.category}`);
     }
     return;
   }
 
-  // /delete <id>
   const id = parseInt(arg);
-  if (isNaN(id)) {
-    return ctx.reply('نحوه استفاده:\n/delete last — حذف آخرین تراکنش\n/delete <شماره> — حذف تراکنش خاص\n\nUsage:\n/delete last — delete latest\n/delete <id> — delete by ID');
-  }
+  if (isNaN(id)) return ctx.reply(msg('delete_usage', lang));
 
   const success = deleteTransaction(id, chatId);
   if (success) {
-    ctx.reply(`✅ تراکنش #${id} حذف شد.\nTransaction #${id} deleted.`);
+    ctx.reply(`✅ #${id} ${msg('tx_deleted', lang)}`);
   } else {
-    ctx.reply(`❌ تراکنش #${id} یافت نشد.\nTransaction #${id} not found.`);
+    ctx.reply(`❌ #${id} ${msg('tx_not_found', lang)}`);
   }
 });
 
-// Handle /debug command
 bot.command('debug', async (ctx) => {
   const rows = debugAllTransactions();
-  if (rows.length === 0) {
-    return ctx.reply('DB is empty.');
-  }
-  let msg = `DB has ${rows.length} transactions:\n\n`;
+  if (rows.length === 0) return ctx.reply('DB is empty.');
+  let out = `DB has ${rows.length} transactions:\n\n`;
   for (const r of rows) {
-    msg += `#${r.id} | chat=${r.chat_id} | ${r.username} | ${r.amount} ${r.currency} | ${r.category} | ${r.type} | ${r.created_at}\n`;
+    out += `#${r.id} | chat=${r.chat_id} | ${r.username} | ${r.amount} ${r.currency} | ${r.category} | ${r.type} | ${r.created_at}\n`;
   }
-  ctx.reply(msg);
+  ctx.reply(out);
 });
 
-// Handle group messages
 bot.on('message:text', async (ctx) => {
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id;
@@ -139,16 +103,9 @@ bot.on('message:text', async (ctx) => {
   console.log(`[MSG] chat=${chatId} user=${username} text="${ctx.message.text}"`);
 
   if (!chatId || !userId) return;
-
-  // Only process messages in groups
-  if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') {
-    return;
-  }
-
-  // Skip bot commands
+  if (ctx.chat?.type !== 'group' && ctx.chat?.type !== 'supergroup') return;
   if (ctx.message.text.startsWith('/')) return;
 
-  // Add chat to monitored list
   monitoredChats.add(chatId);
 
   try {
@@ -158,6 +115,7 @@ bot.on('message:text', async (ctx) => {
 
     if (result.isTransaction && result.amount > 0) {
       const now = new Date().toISOString();
+      const lang = getLanguage(chatId);
 
       const txId = insertTransaction({
         chat_id: chatId,
@@ -173,7 +131,7 @@ bot.on('message:text', async (ctx) => {
       });
 
       const emoji = result.type === 'expense' ? '💸' : '💰';
-      const typeLabel = result.type === 'expense' ? 'هزینه / Expense' : 'درآمد / Income';
+      const typeLabel = result.type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
 
       let amountStr: string;
       switch (result.currency) {
@@ -187,14 +145,14 @@ bot.on('message:text', async (ctx) => {
           amountStr = `${result.amount} ${result.currency}`;
       }
 
-      const keyboard = new InlineKeyboard().text('❌ حذف / Delete', `del:${txId}`);
+      const keyboard = new InlineKeyboard().text(msg('delete_button', lang), `del:${txId}`);
 
       await ctx.reply(
-        `${emoji} ثبت شد! / Recorded! (#${txId})\n\n` +
-        `نوع / Type: ${typeLabel}\n` +
-        `مبلغ / Amount: ${amountStr}\n` +
-        `دسته / Category: ${result.category}\n` +
-        `توضیحات / Description: ${result.description || '—'}`,
+        `${emoji} ${msg('tx_recorded', lang)} (#${txId})\n\n` +
+        `${msg('type_expense', lang)}/${msg('type_income', lang)}: ${typeLabel}\n` +
+        `Amount: ${amountStr}\n` +
+        `Category: ${result.category}\n` +
+        `Description: ${result.description || '—'}`,
         { reply_markup: keyboard }
       );
     } else {
@@ -205,22 +163,21 @@ bot.on('message:text', async (ctx) => {
   }
 });
 
-// Handle inline button callbacks
 bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
   const chatId = ctx.chat?.id;
   const txId = parseInt(ctx.match[1]);
   if (!chatId) return;
 
+  const lang = getLanguage(chatId);
   const success = deleteTransaction(txId, chatId);
   if (success) {
-    await ctx.answerCallbackQuery({ text: `✅ تراکنش #${txId} حذف شد` });
-    await ctx.editMessageText(`❌ تراکنش #${txId} حذف شد.\nTransaction #${txId} deleted.`);
+    await ctx.answerCallbackQuery({ text: `✅ #${txId} ${msg('tx_deleted', lang)}` });
+    await ctx.editMessageText(`❌ #${txId} ${msg('tx_deleted', lang)}`);
   } else {
-    await ctx.answerCallbackQuery({ text: `❌ تراکنش #${txId} یافت نشد`, show_alert: true });
+    await ctx.answerCallbackQuery({ text: `❌ #${txId} ${msg('tx_not_found', lang)}`, show_alert: true });
   }
 });
 
-// Handle errors
 bot.catch((err) => {
   console.error('Bot error:', err);
 });

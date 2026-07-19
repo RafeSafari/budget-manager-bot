@@ -7,6 +7,7 @@ import { learnFromCorrection } from './categorizer';
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
 const monitoredChats = new Set<number>();
+const deletedTxCache = new Map<string, any>();
 
 bot.command('start', (ctx) => {
   const lang = getLanguage(ctx.chat?.id || 0);
@@ -78,9 +79,13 @@ bot.command('delete', async (ctx) => {
 
   const success = deleteTransaction(txToDelete.id, chatId);
   if (success) {
+    const undoKey = `undo_${txToDelete.id}_${Date.now()}`;
+    deletedTxCache.set(undoKey, txToDelete);
+    setTimeout(() => deletedTxCache.delete(undoKey), 300000);
+
     const emoji = txToDelete.type === 'expense' ? '💸' : '💰';
     const typeLabel = txToDelete.type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
-    const keyboard = new InlineKeyboard().text(msg('undo_button', lang), `undo:${txToDelete.id}:${txToDelete.chat_id}:${txToDelete.user_id}:${encodeURIComponent(txToDelete.username)}:${txToDelete.amount}:${txToDelete.currency}:${encodeURIComponent(txToDelete.category)}:${txToDelete.type}:${encodeURIComponent(txToDelete.description || '')}:${encodeURIComponent(txToDelete.original_message)}:${encodeURIComponent(txToDelete.created_at)}`);
+    const keyboard = new InlineKeyboard().text(msg('undo_button', lang), `undo:${undoKey}`);
     ctx.reply(
       `${emoji} ❌ #${txToDelete.id} ${msg('deleted_label', lang)}\n\n` +
       `${typeLabel} | ${txToDelete.amount} ${txToDelete.currency}\n` +
@@ -186,9 +191,13 @@ bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
 
   const success = deleteTransaction(txId, chatId);
   if (success) {
+    const undoKey = `undo_${tx.id}_${Date.now()}`;
+    deletedTxCache.set(undoKey, tx);
+    setTimeout(() => deletedTxCache.delete(undoKey), 300000);
+
     const emoji = tx.type === 'expense' ? '💸' : '💰';
     const typeLabel = tx.type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
-    const keyboard = new InlineKeyboard().text(msg('undo_button', lang), `undo:${tx.id}:${tx.chat_id}:${tx.user_id}:${encodeURIComponent(tx.username)}:${tx.amount}:${tx.currency}:${encodeURIComponent(tx.category)}:${tx.type}:${encodeURIComponent(tx.description || '')}:${encodeURIComponent(tx.original_message)}:${encodeURIComponent(tx.created_at)}`);
+    const keyboard = new InlineKeyboard().text(msg('undo_button', lang), `undo:${undoKey}`);
     await ctx.answerCallbackQuery({ text: `✅ #${txId} ${msg('tx_deleted', lang)}` });
     await ctx.editMessageText(
       `${emoji} ❌ #${tx.id} ${msg('deleted_label', lang)}\n\n` +
@@ -209,20 +218,29 @@ bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
   if (!chatId) return;
 
   const lang = getLanguage(chatId);
-  await ctx.answerCallbackQuery();
 
-  const rows = queryAll('SELECT type FROM transactions WHERE id = ? AND chat_id = ?', [txId]) as any[];
-  if (rows.length === 0) return;
+  try {
+    await ctx.answerCallbackQuery();
 
-  const txType = rows[0].type;
-  const cats = getCategories(txType);
+    const rows = queryAll('SELECT type FROM transactions WHERE id = ? AND chat_id = ?', [txId]) as any[];
+    if (rows.length === 0) {
+      await ctx.answerCallbackQuery({ text: 'Transaction not found', show_alert: true });
+      return;
+    }
 
-  const keyboard = new InlineKeyboard();
-  for (const cat of cats) {
-    keyboard.text(cat.name, `setcat:${txId}:${cat.name}`).row();
+    const txType = rows[0].type;
+    const cats = getCategories(txType);
+
+    const keyboard = new InlineKeyboard();
+    for (const cat of cats) {
+      keyboard.text(cat.name, `setcat:${txId}:${cat.name}`).row();
+    }
+
+    await ctx.editMessageText(msg('select_category', lang), { reply_markup: keyboard });
+  } catch (error) {
+    console.error('[CAT] Error:', error);
+    try { await ctx.answerCallbackQuery({ text: 'Error', show_alert: true }); } catch {}
   }
-
-  await ctx.editMessageText(msg('select_category', lang), { reply_markup: keyboard });
 });
 
 bot.callbackQuery(/^setcat:(\d+):(.+)$/, async (ctx) => {
@@ -231,40 +249,53 @@ bot.callbackQuery(/^setcat:(\d+):(.+)$/, async (ctx) => {
   const category = ctx.match[2];
   if (!chatId) return;
 
-  const lang = getLanguage(chatId);
-  const tx = getTransaction(txId, chatId);
+  try {
+    const lang = getLanguage(chatId);
+    const tx = getTransaction(txId, chatId);
 
-  const success = updateTransactionCategory(txId, chatId, category);
-  if (success) {
-    if (tx) {
-      learnFromCorrection(tx.original_message, category, tx.type);
+    const success = updateTransactionCategory(txId, chatId, category);
+    if (success) {
+      if (tx) {
+        learnFromCorrection(tx.original_message, category, tx.type);
+      }
+      await ctx.answerCallbackQuery({ text: `✅ ${category}` });
+      await ctx.editMessageText(`✅ #${txId} → ${category}\n${msg('category_changed', lang)}`);
+    } else {
+      await ctx.answerCallbackQuery({ text: `❌ ${msg('tx_not_found', lang)}`, show_alert: true });
     }
-    await ctx.answerCallbackQuery({ text: `✅ ${category}` });
-    await ctx.editMessageText(`✅ #${txId} → ${category}\n${msg('category_changed', lang)}`);
-  } else {
-    await ctx.answerCallbackQuery({ text: `❌ ${msg('tx_not_found', lang)}`, show_alert: true });
+  } catch (error) {
+    console.error('[SETCAT] Error:', error);
+    try { await ctx.answerCallbackQuery({ text: 'Error', show_alert: true }); } catch {}
   }
 });
 
-bot.callbackQuery(/^undo:(\d+):(-?\d+):(\d+):(.+):(\d+):([A-Z]+):(.+):(\w+):(.+):(.+):(.+)$/, async (ctx) => {
-  const [, id, chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at] = ctx.match;
-  const lang = getLanguage(parseInt(chat_id));
+bot.callbackQuery(/^undo:(.+)$/, async (ctx) => {
+  const undoKey = ctx.match[1];
+  const tx = deletedTxCache.get(undoKey);
+
+  if (!tx) {
+    await ctx.answerCallbackQuery({ text: '❌ Undo expired or not found', show_alert: true });
+    return;
+  }
+
+  deletedTxCache.delete(undoKey);
+  const lang = getLanguage(tx.chat_id);
 
   const txId = insertTransaction({
-    chat_id: parseInt(chat_id),
-    user_id: parseInt(user_id),
-    username: decodeURIComponent(username),
-    amount: parseFloat(amount),
-    currency,
-    category: decodeURIComponent(category),
-    type: type as 'expense' | 'income',
-    description: decodeURIComponent(description),
-    original_message: decodeURIComponent(original_message),
-    created_at: decodeURIComponent(created_at),
+    chat_id: tx.chat_id,
+    user_id: tx.user_id,
+    username: tx.username,
+    amount: tx.amount,
+    currency: tx.currency,
+    category: tx.category,
+    type: tx.type,
+    description: tx.description,
+    original_message: tx.original_message,
+    created_at: tx.created_at,
   });
 
-  const emoji = type === 'expense' ? '💸' : '💰';
-  const typeLabel = type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
+  const emoji = tx.type === 'expense' ? '💸' : '💰';
+  const typeLabel = tx.type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
   const keyboard = new InlineKeyboard()
     .text(msg('change_category_button', lang), `cat:${txId}`)
     .text(msg('delete_button', lang), `del:${txId}`);
@@ -272,10 +303,10 @@ bot.callbackQuery(/^undo:(\d+):(-?\d+):(\d+):(.+):(\d+):([A-Z]+):(.+):(\w+):(.+)
   await ctx.answerCallbackQuery({ text: `✅ ${msg('tx_undone', lang)}` });
   await ctx.editMessageText(
     `${emoji} ${msg('tx_recorded', lang)} (#${txId})\n\n` +
-    `${typeLabel} | ${amount} ${currency}\n` +
-    `Category: ${decodeURIComponent(category)}\n` +
-    `Description: ${decodeURIComponent(description) || '—'}\n` +
-    `User: ${decodeURIComponent(username)}`,
+    `${typeLabel} | ${tx.amount} ${tx.currency}\n` +
+    `Category: ${tx.category}\n` +
+    `Description: ${tx.description || '—'}\n` +
+    `User: ${tx.username}`,
     { reply_markup: keyboard }
   );
 });

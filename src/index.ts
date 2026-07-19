@@ -1,43 +1,66 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import { webhookCallback } from 'grammy';
+import { createBot, Env } from './bot';
+import { getAllEnabledAutoSummaries, getLanguage } from './database';
+import { generateWeeklyReport } from './reports';
 
-import { initDatabase, closeDatabase } from './database';
-import { startBot, stopBot } from './bot';
+export { Env };
 
-// Validate environment variables
-const required = ['TELEGRAM_BOT_TOKEN', 'OPENCODE_API_KEY'];
-for (const key of required) {
-  if (!process.env[key]) {
-    console.error(`Missing required environment variable: ${key}`);
-    process.exit(1);
+async function handleScheduled(env: Env, scheduledTime: Date): Promise<void> {
+  const DB = env.DB;
+  const bot = createBot(env);
+
+  const summaries = await getAllEnabledAutoSummaries(DB);
+  console.log(`[CRON] Checking ${summaries.length} auto-summaries at ${scheduledTime.toISOString()}`);
+
+  for (const settings of summaries) {
+    const now = scheduledTime;
+    const [hour, minute] = settings.time.split(':').map(Number);
+    const settingsHour = hour;
+    const settingsMinute = minute;
+
+    let shouldSend = false;
+
+    if (settings.schedule_type === 'daily') {
+      shouldSend = now.getHours() === settingsHour && now.getMinutes() === settingsMinute;
+    } else if (settings.schedule_type === 'weekly') {
+      const dayMap: Record<string, number> = {
+        sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+        thursday: 4, friday: 5, saturday: 6,
+      };
+      const targetDay = dayMap[settings.day?.toLowerCase() || 'sunday'] ?? 0;
+      shouldSend = now.getDay() === targetDay && now.getHours() === settingsHour && now.getMinutes() === settingsMinute;
+    }
+
+    if (shouldSend) {
+      try {
+        const report = await generateWeeklyReport(DB, settings.chat_id);
+        await bot.api.sendMessage(settings.chat_id, report);
+        console.log(`[CRON] Sent summary to chat=${settings.chat_id}`);
+      } catch (error) {
+        console.error(`[CRON] Failed to send summary to chat=${settings.chat_id}:`, error);
+      }
+    }
   }
 }
 
-async function main() {
-  // Initialize database
-  await initDatabase();
-  console.log('Database initialized.');
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
 
-  // Start bot
-  startBot();
-}
+    if (url.pathname === '/') {
+      return new Response('Budget Manager Bot is running!', { status: 200 });
+    }
 
-main().catch((err) => {
-  console.error('Failed to start:', err);
-  process.exit(1);
-});
+    if (url.pathname === '/webhook' && request.method === 'POST') {
+      const bot = createBot(env);
+      return webhookCallback(bot, "cloudflare-mod")(request);
+    }
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('Shutting down...');
-  stopBot();
-  closeDatabase();
-  process.exit(0);
-});
+    return new Response('Not Found', { status: 404 });
+  },
 
-process.on('SIGTERM', () => {
-  console.log('Shutting down...');
-  stopBot();
-  closeDatabase();
-  process.exit(0);
-});
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const scheduledTime = new Date(controller.scheduledTime);
+    await handleScheduled(env, scheduledTime);
+  },
+};

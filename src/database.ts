@@ -1,9 +1,3 @@
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
-import path from 'path';
-import fs from 'fs';
-
-const DB_PATH = process.env.DB_PATH || './data/budget.db';
-
 export interface Transaction {
   id: number;
   chat_id: number;
@@ -35,339 +29,42 @@ export interface Budget {
   period: 'monthly' | 'weekly';
 }
 
-let db: SqlJsDatabase;
-
-export async function initDatabase(): Promise<void> {
-  const dir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  const SQL = await initSqlJs();
-
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chat_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      username TEXT NOT NULL,
-      amount REAL NOT NULL,
-      currency TEXT DEFAULT 'USD',
-      category TEXT NOT NULL,
-      type TEXT CHECK(type IN ('expense', 'income')) NOT NULL,
-      description TEXT DEFAULT '',
-      original_message TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  db.run('CREATE INDEX IF NOT EXISTS idx_chat_id ON transactions(chat_id)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_created_at ON transactions(created_at)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_category ON transactions(category)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_type ON transactions(type)');
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS settings (
-      chat_id INTEGER PRIMARY KEY,
-      language TEXT DEFAULT 'fa'
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      type TEXT CHECK(type IN ('expense', 'income')) NOT NULL,
-      keywords TEXT DEFAULT '[]',
-      usage_count INTEGER DEFAULT 0,
-      UNIQUE(name, type)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS budgets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chat_id INTEGER NOT NULL,
-      category TEXT NOT NULL,
-      amount REAL NOT NULL,
-      currency TEXT DEFAULT 'IRT',
-      period TEXT DEFAULT 'monthly',
-      UNIQUE(chat_id, category, period)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS auto_summary (
-      chat_id INTEGER PRIMARY KEY,
-      enabled INTEGER DEFAULT 0,
-      schedule_type TEXT DEFAULT 'daily',
-      time TEXT DEFAULT '09:00',
-      day TEXT DEFAULT NULL
-    )
-  `);
-
-  seedDefaultCategories();
-  saveDatabase();
+export interface AutoSummary {
+  chat_id: number;
+  enabled: number;
+  schedule_type: string;
+  time: string;
+  day: string | null;
 }
 
-function seedDefaultCategories(): void {
-  const existing = queryAll('SELECT COUNT(*) as cnt FROM categories');
-  if (existing[0]?.cnt > 0) return;
+export async function insertTransaction(DB: D1Database, t: Omit<Transaction, 'id'>): Promise<number> {
+  const result = await DB.prepare(
+    `INSERT INTO transactions (chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(t.chat_id, t.user_id, t.username, t.amount, t.currency, t.category, t.type, t.description, t.original_message, t.created_at)
+    .run();
 
-const defaults: { name: string; type: 'expense' | 'income'; keywords: string[] }[] = [
-  {
-    name: 'Food',
-    type: 'expense',
-    keywords: [
-      'غذا','خوراک','خوراکی','ناهار','شام','صبحانه','میان وعده',
-      'رستوران','کافه','کافی شاپ','فست فود','پیتزا','برگر','ساندویچ',
-      'کباب','جوجه','چلو','چلوکباب','خورشت','قورمه','قیمه','آبگوشت',
-      'پاستا','ماکارونی','سوپ','سالاد',
-      'قهوه','نسکافه','لاته','کاپوچینو','اسپرسو','چای','دمنوش',
-      'بستنی','آبمیوه','اسموتی','نوشابه','دوغ','دلستر',
-      'شیرینی','کیک','شکلات','بیسکویت','آجیل',
-      'نان','برنج','مرغ','گوشت','ماهی','سالمون','تن ماهی',
-      'میوه','سبزی','لبنیات','شیر','ماست','پنیر','تخم مرغ',
-      'سوسیس','کالباس',
-      'سوپرمارکت','سوپری','بقالی','هایپر','هایپرمارکت',
-      'قصابی','نانوایی','میوه فروشی','تره بار','بازار میوه'
-    ]
-  },
-
-  {
-    name: 'Transport',
-    type: 'expense',
-    keywords: [
-      'تاکسی','اسنپ','تپسی','ماکسیم','آژانس',
-      'مترو','اتوبوس','بی آر تی','ون',
-      'قطار','راه آهن','هواپیما','پرواز','فرودگاه',
-      'بنزین','گازوئیل','سی ان جی','سوخت',
-      'ماشین','خودرو','موتور','دوچرخه',
-      'پیک','الوپیک','تیپاکس',
-      'عوارض','عوارضی','طرح ترافیک',
-      'پارکینگ',
-      'لاستیک','روغن موتور','تعویض روغن','باطری','باتری',
-      'کارواش','مکانیک','تعمیرگاه','سرویس خودرو','معاینه فنی'
-    ]
-  },
-
-  {
-    name: 'Shopping',
-    type: 'expense',
-    keywords: [
-      'خرید','فروشگاه','مغازه','بازار','مال',
-      'دیجی کالا','دیجی‌کالا','ترب','باسلام',
-      'لباس','پوشاک','تی شرت','تیشرت','شلوار','کت',
-      'کفش','صندل','بوت',
-      'کیف','کوله','چمدان',
-      'ساعت','عینک','زیورآلات','انگشتر','گردنبند','دستبند',
-      'آرایشی','بهداشتی','لوازم آرایش','عطر','ادکلن',
-      'موبایل','گوشی','تبلت','لپ تاپ','لپ‌تاپ',
-      'کامپیوتر','کیبورد','ماوس','هدفون','هارد','فلش',
-      'لوازم خانه','ظروف','مبلمان','دکور','فرش','پرده'
-    ]
-  },
-
-  {
-    name: 'Bills',
-    type: 'expense',
-    keywords: [
-      'قبض',
-      'قبض برق','قبض آب','قبض گاز','قبض تلفن',
-      'برق','گاز','تلفن','اینترنت',
-      'همراه اول','ایرانسل','رایتل',
-      'شارژ','بسته اینترنت',
-      'اجاره','رهن','ودیعه',
-      'شارژ ساختمان','شارژ مجتمع',
-      'مالیات','عوارض',
-      'جریمه','جریمه رانندگی',
-      'بیمه','بیمه خودرو','بیمه شخص ثالث','بیمه درمان',
-      'اشتراک','عضویت',
-      'نتفلیکس','اسپاتیفای','فیلیمو','نماوا','یوتیوب پریمیوم',
-      'هاست','دامنه','سرور','کلاد','Cloudflare','VPS'
-    ]
-  },
-
-  {
-    name: 'Entertainment',
-    type: 'expense',
-    keywords: [
-      'تفریح','سرگرمی',
-      'سینما','فیلم','تئاتر','کنسرت',
-      'بازی','گیم','استیم','Steam','پلی استیشن','ایکس باکس','نینتندو',
-      'بردگیم','بوردگیم',
-      'موسیقی',
-      'باشگاه','ورزش','استخر','فوتبال','والیبال','بدنسازی',
-      'کتاب','رمان','کمیک',
-      'سفر','مسافرت','هتل','اقامت','ویلا',
-      'بلیط','تور',
-      'شهربازی','بولینگ','بیلیارد','اتاق فرار','کارتینگ','کافه بازی'
-    ]
-  },
-
-  {
-    name: 'Health',
-    type: 'expense',
-    keywords: [
-      'دارو','داروخانه','قرص','شربت',
-      'ویتامین','مکمل',
-      'دکتر','پزشک','ویزیت',
-      'درمان','کلینیک','بیمارستان',
-      'آزمایش','آزمایشگاه','رادیولوژی','ام آر آی','MRI','سی تی اسکن',
-      'واکسن',
-      'دندانپزشک','دندان','ارتودنسی',
-      'جراحی',
-      'فیزیوتراپی','روانشناس','روانپزشک',
-      'عینک طبی','لنز'
-    ]
-  },
-
-  {
-    name: 'Education',
-    type: 'expense',
-    keywords: [
-      'آموزش','کلاس','دوره','کارگاه',
-      'مدرسه','دانشگاه','شهریه',
-      'کتاب','جزوه',
-      'تدریس','معلم','استاد',
-      'کنکور',
-      'زبان','آیلتس','تافل',
-      'برنامه نویسی','برنامه‌نویسی','کدنویسی',
-      'گواهینامه','آموزشگاه رانندگی',
-      'یودمی','Udemy','Coursera'
-    ]
-  },
-
-  {
-    name: 'Salary',
-    type: 'income',
-    keywords: [
-      'حقوق','حقوق ماهانه','حقوقم',
-      'دستمزد','حقوق کارمندی',
-      'کارانه','اضافه کار','اضافه‌کار',
-      'پاداش','عیدی',
-      'پورسانت','کمیسیون',
-      'بازنشستگی','مستمری'
-    ]
-  },
-
-  {
-    name: 'Freelance',
-    type: 'income',
-    keywords: [
-      'فریلنسر','پروژه','قرارداد',
-      'مشاوره','طراحی','برنامه نویسی','برنامه‌نویسی',
-      'توسعه','برنامه نویس',
-      'وبسایت','اپلیکیشن',
-      'درآمد پروژه','حق الزحمه','حق‌الزحمه',
-      'کارفرما','تسویه پروژه'
-    ]
-  },
-
-  {
-    name: 'Gift',
-    type: 'income',
-    keywords: [
-      'هدیه','کادو','عیدی','جایزه',
-      'کمک','حمایت',
-      'پول توجیبی','پول جیبی',
-      'بلاعوض',
-      'خیرات','صدقه','نذری'
-    ]
-  },
-
-  {
-    name: 'Refund',
-    type: 'income',
-    keywords: [
-      'بازپرداخت',
-      'برگشت پول',
-      'استرداد',
-      'مرجوع',
-      'مرجوعی',
-      'کنسلی',
-      'لغو سفارش',
-      'برگشت وجه',
-      'عودت وجه'
-    ]
-  },
-
-  {
-    name: 'Other',
-    type: 'expense',
-    keywords: []
-  },
-
-  {
-    name: 'Other',
-    type: 'income',
-    keywords: []
-  }
-];
-
-  for (const cat of defaults) {
-    db.run(
-      'INSERT OR IGNORE INTO categories (name, type, keywords, usage_count) VALUES (?, ?, ?, 0)',
-      [cat.name, cat.type, JSON.stringify(cat.keywords)]
-    );
-  }
+  const id = result.meta.last_row_id as number;
+  console.log(`[DB] Inserted transaction #${id}`);
+  return id;
 }
 
-function saveDatabase(): void {
-  try {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(DB_PATH, buffer);
-    console.log(`[DB] Saved to ${DB_PATH} (${buffer.length} bytes)`);
-  } catch (error) {
-    console.error('[DB] SAVE FAILED:', error);
+export async function queryAll(DB: D1Database, sql: string, params: any[] = []): Promise<any[]> {
+  const stmt = DB.prepare(sql);
+  if (params.length > 0) {
+    stmt.bind(...params);
   }
+  const { results } = await stmt.all();
+  return results;
 }
 
-export function insertTransaction(t: Omit<Transaction, 'id'>): number {
-  try {
-    db.run(
-      `INSERT INTO transactions (chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [t.chat_id, t.user_id, t.username, t.amount, t.currency, t.category, t.type, t.description, t.original_message, t.created_at]
-    );
-
-    const result = db.exec('SELECT last_insert_rowid() as id');
-    const id = result[0]?.values[0]?.[0] as number;
-    saveDatabase();
-    console.log(`[DB] Inserted transaction #${id}`);
-    return id;
-  } catch (error) {
-    console.error('[DB] INSERT FAILED:', error);
-    return -1;
-  }
-}
-
-export function queryAll(sql: string, params: any[] = []): any[] {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-
-  const rows: any[] = [];
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return rows;
-}
-
-export function getTransactions(
+export async function getTransactions(
+  DB: D1Database,
   chatId: number,
   startDate: string,
   endDate?: string,
   type?: 'expense' | 'income'
-): Transaction[] {
+): Promise<Transaction[]> {
   let query = 'SELECT * FROM transactions WHERE chat_id = ? AND created_at >= ?';
   const params: any[] = [chatId, startDate];
 
@@ -382,15 +79,16 @@ export function getTransactions(
   }
 
   query += ' ORDER BY created_at DESC';
-  return queryAll(query, params) as Transaction[];
+  return queryAll(DB, query, params) as Promise<Transaction[]>;
 }
 
-export function getCategorySummary(
+export async function getCategorySummary(
+  DB: D1Database,
   chatId: number,
   startDate: string,
   endDate: string,
   type: 'expense' | 'income'
-): { category: string; currency: string; total: number; count: number }[] {
+): Promise<{ category: string; currency: string; total: number; count: number }[]> {
   const query = `
     SELECT category, currency, SUM(amount) as total, COUNT(*) as count
     FROM transactions
@@ -398,15 +96,16 @@ export function getCategorySummary(
     GROUP BY category, currency
     ORDER BY total DESC
   `;
-  return queryAll(query, [chatId, startDate, endDate, type]);
+  return queryAll(DB, query, [chatId, startDate, endDate, type]);
 }
 
-export function getUserSummary(
+export async function getUserSummary(
+  DB: D1Database,
   chatId: number,
   startDate: string,
   endDate: string,
   type: 'expense' | 'income'
-): { username: string; total: number; count: number }[] {
+): Promise<{ username: string; total: number; count: number }[]> {
   const query = `
     SELECT username, SUM(amount) as total, COUNT(*) as count
     FROM transactions
@@ -414,50 +113,51 @@ export function getUserSummary(
     GROUP BY user_id
     ORDER BY total DESC
   `;
-  return queryAll(query, [chatId, startDate, endDate, type]);
+  return queryAll(DB, query, [chatId, startDate, endDate, type]);
 }
 
-export function deleteTransaction(id: number, chatId: number): boolean {
-  db.run('DELETE FROM transactions WHERE id = ? AND chat_id = ?', [id, chatId]);
-  const changes = db.getRowsModified();
-  saveDatabase();
-  return changes > 0;
+export async function deleteTransaction(DB: D1Database, id: number, chatId: number): Promise<boolean> {
+  const result = await DB.prepare('DELETE FROM transactions WHERE id = ? AND chat_id = ?')
+    .bind(id, chatId)
+    .run();
+  return result.meta.changes > 0;
 }
 
-export function getLastTransaction(chatId: number): Transaction | null {
-  const rows = queryAll('SELECT * FROM transactions WHERE chat_id = ? ORDER BY id DESC LIMIT 1', [chatId]);
+export async function getLastTransaction(DB: D1Database, chatId: number): Promise<Transaction | null> {
+  const rows = await queryAll(DB, 'SELECT * FROM transactions WHERE chat_id = ? ORDER BY id DESC LIMIT 1', [chatId]);
   return rows.length > 0 ? rows[0] as Transaction : null;
 }
 
-export function getTransaction(id: number, chatId: number): Transaction | null {
-  const rows = queryAll('SELECT * FROM transactions WHERE id = ? AND chat_id = ?', [id, chatId]);
+export async function getTransaction(DB: D1Database, id: number, chatId: number): Promise<Transaction | null> {
+  const rows = await queryAll(DB, 'SELECT * FROM transactions WHERE id = ? AND chat_id = ?', [id, chatId]);
   return rows.length > 0 ? rows[0] as Transaction : null;
 }
 
-export function debugAllTransactions(): any[] {
-  return queryAll('SELECT id, chat_id, user_id, username, amount, currency, category, type, created_at FROM transactions ORDER BY id DESC');
+export async function debugAllTransactions(DB: D1Database): Promise<any[]> {
+  return queryAll(DB, 'SELECT id, chat_id, user_id, username, amount, currency, category, type, created_at FROM transactions ORDER BY id DESC');
 }
 
-export function getLanguage(chatId: number): 'fa' | 'en' {
-  const rows = queryAll('SELECT language FROM settings WHERE chat_id = ?', [chatId]);
+export async function getLanguage(DB: D1Database, chatId: number): Promise<'fa' | 'en'> {
+  const rows = await queryAll(DB, 'SELECT language FROM settings WHERE chat_id = ?', [chatId]);
   if (rows.length > 0 && rows[0].language === 'en') return 'en';
   return 'fa';
 }
 
-export function setLanguage(chatId: number, lang: string): void {
-  db.run('INSERT OR REPLACE INTO settings (chat_id, language) VALUES (?, ?)', [chatId, lang]);
-  saveDatabase();
+export async function setLanguage(DB: D1Database, chatId: number, lang: string): Promise<void> {
+  await DB.prepare('INSERT OR REPLACE INTO settings (chat_id, language) VALUES (?, ?)')
+    .bind(chatId, lang)
+    .run();
 }
 
-export function updateTransactionCategory(id: number, chatId: number, category: string): boolean {
-  db.run('UPDATE transactions SET category = ? WHERE id = ? AND chat_id = ?', [category, id, chatId]);
-  const changes = db.getRowsModified();
-  saveDatabase();
-  return changes > 0;
+export async function updateTransactionCategory(DB: D1Database, id: number, chatId: number, category: string): Promise<boolean> {
+  const result = await DB.prepare('UPDATE transactions SET category = ? WHERE id = ? AND chat_id = ?')
+    .bind(category, id, chatId)
+    .run();
+  return result.meta.changes > 0;
 }
 
-export function getCategories(type: 'expense' | 'income'): Category[] {
-  const rows = queryAll('SELECT * FROM categories WHERE type = ? ORDER BY usage_count DESC, name', [type]);
+export async function getCategories(DB: D1Database, type: 'expense' | 'income'): Promise<Category[]> {
+  const rows = await queryAll(DB, 'SELECT * FROM categories WHERE type = ? ORDER BY usage_count DESC, name', [type]);
   return rows.map(r => ({
     id: r.id,
     name: r.name,
@@ -467,8 +167,8 @@ export function getCategories(type: 'expense' | 'income'): Category[] {
   }));
 }
 
-export function getAllCategoryKeywords(type: 'expense' | 'income'): Record<string, string[]> {
-  const cats = getCategories(type);
+export async function getAllCategoryKeywords(DB: D1Database, type: 'expense' | 'income'): Promise<Record<string, string[]>> {
+  const cats = await getCategories(DB, type);
   const result: Record<string, string[]> = {};
   for (const cat of cats) {
     result[cat.name] = cat.keywords;
@@ -476,102 +176,100 @@ export function getAllCategoryKeywords(type: 'expense' | 'income'): Record<strin
   return result;
 }
 
-export function incrementCategoryUsage(categoryName: string, type: 'expense' | 'income'): void {
-  db.run('UPDATE categories SET usage_count = usage_count + 1 WHERE name = ? AND type = ?', [categoryName, type]);
-  saveDatabase();
+export async function incrementCategoryUsage(DB: D1Database, categoryName: string, type: 'expense' | 'income'): Promise<void> {
+  await DB.prepare('UPDATE categories SET usage_count = usage_count + 1 WHERE name = ? AND type = ?')
+    .bind(categoryName, type)
+    .run();
 }
 
-export function addCategoryKeyword(categoryName: string, type: 'expense' | 'income', keyword: string): void {
-  const rows = queryAll('SELECT keywords FROM categories WHERE name = ? AND type = ?', [categoryName, type]);
+export async function addCategoryKeyword(DB: D1Database, categoryName: string, type: 'expense' | 'income', keyword: string): Promise<void> {
+  const rows = await queryAll(DB, 'SELECT keywords FROM categories WHERE name = ? AND type = ?', [categoryName, type]);
   if (rows.length === 0) return;
 
   const keywords: string[] = JSON.parse(rows[0].keywords || '[]');
   if (!keywords.includes(keyword)) {
     keywords.push(keyword);
-    db.run('UPDATE categories SET keywords = ? WHERE name = ? AND type = ?', [JSON.stringify(keywords), categoryName, type]);
-    saveDatabase();
+    await DB.prepare('UPDATE categories SET keywords = ? WHERE name = ? AND type = ?')
+      .bind(JSON.stringify(keywords), categoryName, type)
+      .run();
   }
 }
 
-export function createCategory(name: string, type: 'expense' | 'income', keywords: string[] = []): number {
-  try {
-    db.run(
-      'INSERT INTO categories (name, type, keywords, usage_count) VALUES (?, ?, ?, 1)',
-      [name, type, JSON.stringify(keywords)]
-    );
-    const result = db.exec('SELECT last_insert_rowid() as id');
-    const id = result[0]?.values[0]?.[0] as number;
-    saveDatabase();
-    console.log(`[DB] Created category "${name}" (${type})`);
-    return id;
-  } catch (error) {
-    console.error('[DB] CREATE CATEGORY FAILED:', error);
-    return -1;
-  }
+export async function createCategory(DB: D1Database, name: string, type: 'expense' | 'income', keywords: string[] = []): Promise<number> {
+  const result = await DB.prepare(
+    'INSERT INTO categories (name, type, keywords, usage_count) VALUES (?, ?, ?, 1)'
+  ).bind(name, type, JSON.stringify(keywords))
+    .run();
+
+  const id = result.meta.last_row_id as number;
+  console.log(`[DB] Created category "${name}" (${type})`);
+  return id;
 }
 
-export function setBudget(chatId: number, category: string, amount: number, currency: string = 'IRT', period: string = 'monthly'): void {
-  db.run(
-    'INSERT OR REPLACE INTO budgets (chat_id, category, amount, currency, period) VALUES (?, ?, ?, ?, ?)',
-    [chatId, category, amount, currency, period]
-  );
-  saveDatabase();
+export async function setBudget(DB: D1Database, chatId: number, category: string, amount: number, currency: string = 'IRT', period: string = 'monthly'): Promise<void> {
+  await DB.prepare(
+    'INSERT OR REPLACE INTO budgets (chat_id, category, amount, currency, period) VALUES (?, ?, ?, ?, ?)'
+  ).bind(chatId, category, amount, currency, period)
+    .run();
 }
 
-export function getBudgets(chatId: number): Budget[] {
-  return queryAll('SELECT * FROM budgets WHERE chat_id = ?', [chatId]) as Budget[];
+export async function getBudgets(DB: D1Database, chatId: number): Promise<Budget[]> {
+  return queryAll(DB, 'SELECT * FROM budgets WHERE chat_id = ?', [chatId]) as Promise<Budget[]>;
 }
 
-export function getBudget(chatId: number, category: string): Budget | null {
-  const rows = queryAll('SELECT * FROM budgets WHERE chat_id = ? AND category = ?', [chatId, category]);
+export async function getBudget(DB: D1Database, chatId: number, category: string): Promise<Budget | null> {
+  const rows = await queryAll(DB, 'SELECT * FROM budgets WHERE chat_id = ? AND category = ?', [chatId, category]);
   return rows.length > 0 ? rows[0] as Budget : null;
 }
 
-export function deleteBudget(chatId: number, category: string): boolean {
-  db.run('DELETE FROM budgets WHERE chat_id = ? AND category = ?', [chatId, category]);
-  const changes = db.getRowsModified();
-  saveDatabase();
-  return changes > 0;
+export async function deleteBudget(DB: D1Database, chatId: number, category: string): Promise<boolean> {
+  const result = await DB.prepare('DELETE FROM budgets WHERE chat_id = ? AND category = ?')
+    .bind(chatId, category)
+    .run();
+  return result.meta.changes > 0;
 }
 
-export function getSpentThisMonth(chatId: number, category: string): { total: number; currency: string } {
+export async function getSpentThisMonth(DB: D1Database, chatId: number, category: string): Promise<{ total: number; currency: string }> {
   const now = new Date();
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const rows = queryAll(
+  const rows = await queryAll(
+    DB,
     'SELECT SUM(amount) as total, currency FROM transactions WHERE chat_id = ? AND category = ? AND type = ? AND created_at >= ? GROUP BY currency',
     [chatId, category, 'expense', monthStart]
   );
   return rows.length > 0 ? { total: rows[0].total || 0, currency: rows[0].currency || 'IRT' } : { total: 0, currency: 'IRT' };
 }
 
-export interface AutoSummary {
-  chat_id: number;
-  enabled: number;
-  schedule_type: string;
-  time: string;
-  day: string | null;
+export async function setAutoSummary(DB: D1Database, chatId: number, enabled: boolean, scheduleType: string, time: string, day: string | null = null): Promise<void> {
+  await DB.prepare(
+    'INSERT OR REPLACE INTO auto_summary (chat_id, enabled, schedule_type, time, day) VALUES (?, ?, ?, ?, ?)'
+  ).bind(chatId, enabled ? 1 : 0, scheduleType, time, day)
+    .run();
 }
 
-export function setAutoSummary(chatId: number, enabled: boolean, scheduleType: string, time: string, day: string | null = null): void {
-  db.run(
-    'INSERT OR REPLACE INTO auto_summary (chat_id, enabled, schedule_type, time, day) VALUES (?, ?, ?, ?, ?)',
-    [chatId, enabled ? 1 : 0, scheduleType, time, day]
-  );
-  saveDatabase();
-}
-
-export function getAutoSummary(chatId: number): AutoSummary | null {
-  const rows = queryAll('SELECT * FROM auto_summary WHERE chat_id = ?', [chatId]);
+export async function getAutoSummary(DB: D1Database, chatId: number): Promise<AutoSummary | null> {
+  const rows = await queryAll(DB, 'SELECT * FROM auto_summary WHERE chat_id = ?', [chatId]);
   return rows.length > 0 ? rows[0] as AutoSummary : null;
 }
 
-export function getAllEnabledAutoSummaries(): AutoSummary[] {
-  return queryAll('SELECT * FROM auto_summary WHERE enabled = 1') as AutoSummary[];
+export async function getAllEnabledAutoSummaries(DB: D1Database): Promise<AutoSummary[]> {
+  return queryAll(DB, 'SELECT * FROM auto_summary WHERE enabled = 1') as Promise<AutoSummary[]>;
 }
 
-export function closeDatabase(): void {
-  if (db) {
-    saveDatabase();
-    db.close();
-  }
+export async function storeUndoCache(DB: D1Database, key: string, data: any, ttlSeconds: number = 300): Promise<void> {
+  const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+  await DB.prepare('INSERT OR REPLACE INTO undo_cache (key, data, expires_at) VALUES (?, ?, ?)')
+    .bind(key, JSON.stringify(data), expiresAt)
+    .run();
+}
+
+export async function getUndoCache(DB: D1Database, key: string): Promise<any | null> {
+  const now = Math.floor(Date.now() / 1000);
+  const rows = await queryAll(DB, 'SELECT data FROM undo_cache WHERE key = ? AND expires_at > ?', [key, now]);
+  if (rows.length === 0) return null;
+  return JSON.parse(rows[0].data);
+}
+
+export async function deleteUndoCache(DB: D1Database, key: string): Promise<void> {
+  await DB.prepare('DELETE FROM undo_cache WHERE key = ?').bind(key).run();
 }

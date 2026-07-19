@@ -1,0 +1,22 @@
+name = "budget-manager-bot"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "budget-bot-db"
+database_id = "YOUR_D1_DATABASE_ID_HERE"
+
+# Cron Triggers - runs every minute to check scheduled summaries
+[triggers]
+crons = ["* * * * *"]
+
+# Required secrets (set via: npx wrangler secret put BOT_TOKEN)
+# BOT_TOKEN - Telegram bot token
+# OPENCODE_API_KEY - OpenCode Zen API key
+
+# Optional vars (defaults shown)
+[vars]
+OPENCODE_MODEL = "deepseek-v4-flash-free"

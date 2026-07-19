@@ -48,36 +48,12 @@ function getCategoryEmoji(category: string): string {
   return CATEGORY_EMOJIS[category] || '📌';
 }
 
-export function generateWeeklyReport(chatId: number): string {
-  const now = new Date();
-  const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
-  const weekEndObj = endOfWeek(now, { weekStartsOn: 1 });
-  weekEndObj.setDate(weekEndObj.getDate() + 1);
-  const weekEnd = format(weekEndObj, 'yyyy-MM-dd');
-
-  return generateReport(chatId, weekStart, weekEnd, 'weekly_report');
-}
-
-export function generateMonthlyReport(chatId: number): string {
-  const now = new Date();
-  const monthStart = format(startOfMonth(now), 'yyyy-MM-dd');
-  const monthEndObj = endOfMonth(now);
-  monthEndObj.setDate(monthEndObj.getDate() + 1);
-  const monthEnd = format(monthEndObj, 'yyyy-MM-dd');
-
-  return generateReport(chatId, monthStart, monthEnd, 'monthly_report');
-}
-
-export function generateCustomReport(chatId: number, startDate: string, endDate: string): string {
-  return generateReport(chatId, startDate, endDate, 'weekly_report');
-}
-
-function generateReport(chatId: number, startDate: string, endDate: string, periodKey: string): string {
-  const lang = getLanguage(chatId);
-  const expenses = getCategorySummary(chatId, startDate, endDate, 'expense');
-  const income = getCategorySummary(chatId, startDate, endDate, 'income');
-  const userExpenses = getUserSummary(chatId, startDate, endDate, 'expense');
-  const userIncome = getUserSummary(chatId, startDate, endDate, 'income');
+async function generateReport(DB: D1Database, chatId: number, startDate: string, endDate: string, periodKey: string): Promise<string> {
+  const lang = await getLanguage(DB, chatId);
+  const expenses = await getCategorySummary(DB, chatId, startDate, endDate, 'expense');
+  const income = await getCategorySummary(DB, chatId, startDate, endDate, 'income');
+  const userExpenses = await getUserSummary(DB, chatId, startDate, endDate, 'expense');
+  const userIncome = await getUserSummary(DB, chatId, startDate, endDate, 'income');
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.total, 0);
   const totalIncome = income.reduce((sum, i) => sum + i.total, 0);
@@ -126,14 +102,39 @@ function generateReport(chatId: number, startDate: string, endDate: string, peri
   return report.trim();
 }
 
-export function generateTransactionList(
+export async function generateWeeklyReport(DB: D1Database, chatId: number): Promise<string> {
+  const now = new Date();
+  const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const weekEndObj = endOfWeek(now, { weekStartsOn: 1 });
+  weekEndObj.setDate(weekEndObj.getDate() + 1);
+  const weekEnd = format(weekEndObj, 'yyyy-MM-dd');
+
+  return generateReport(DB, chatId, weekStart, weekEnd, 'weekly_report');
+}
+
+export async function generateMonthlyReport(DB: D1Database, chatId: number): Promise<string> {
+  const now = new Date();
+  const monthStart = format(startOfMonth(now), 'yyyy-MM-dd');
+  const monthEndObj = endOfMonth(now);
+  monthEndObj.setDate(monthEndObj.getDate() + 1);
+  const monthEnd = format(monthEndObj, 'yyyy-MM-dd');
+
+  return generateReport(DB, chatId, monthStart, monthEnd, 'monthly_report');
+}
+
+export async function generateCustomReport(DB: D1Database, chatId: number, startDate: string, endDate: string): Promise<string> {
+  return generateReport(DB, chatId, startDate, endDate, 'weekly_report');
+}
+
+export async function generateTransactionList(
+  DB: D1Database,
   chatId: number,
   startDate: string,
   endDate?: string,
   type?: 'expense' | 'income'
-): string {
-  const lang = getLanguage(chatId);
-  const transactions = getTransactions(chatId, startDate, endDate, type);
+): Promise<string> {
+  const lang = await getLanguage(DB, chatId);
+  const transactions = await getTransactions(DB, chatId, startDate, endDate, type);
 
   if (transactions.length === 0) {
     return msg('no_transactions', lang);

@@ -1,11 +1,6 @@
 import OpenAI from 'openai';
 import { getAllCategoryKeywords, getCategories, incrementCategoryUsage, addCategoryKeyword, createCategory } from './database';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENCODE_API_KEY,
-  baseURL: 'https://opencode.ai/zen/v1',
-});
-
 export interface CategorizationResult {
   isTransaction: boolean;
   type: 'expense' | 'income';
@@ -66,9 +61,9 @@ const INCOME_PATTERNS = [
   /(حقوق|دستمزد|دریافت|گرفتم|گرفته|واریز|واریز شد|اضافه شد)/,
 ];
 
-function guessCategory(text: string, type: 'expense' | 'income'): string {
+async function guessCategory(DB: D1Database, text: string, type: 'expense' | 'income'): Promise<string> {
   const lower = text.toLowerCase();
-  const categoryKeywords = getAllCategoryKeywords(type);
+  const categoryKeywords = await getAllCategoryKeywords(DB, type);
 
   let bestCategory = 'Other';
   let bestScore = 0;
@@ -91,8 +86,6 @@ function guessCategory(text: string, type: 'expense' | 'income'): string {
 }
 
 function regexParse(message: string): CategorizationResult | null {
-  const fallback: CategorizationResult = { isTransaction: false, type: 'expense', amount: 0, currency: 'USD', category: 'Other', description: '' };
-
   const text = persianToEnglishDigits(message);
 
   const hasExpenseKeyword = EXPENSE_PATTERNS.some(p => p.test(message));
@@ -143,21 +136,12 @@ function regexParse(message: string): CategorizationResult | null {
 
   if (amount <= 0) return null;
 
-  const category = guessCategory(message, type);
-
-  return {
-    isTransaction: true,
-    type,
-    amount,
-    currency,
-    category,
-    description: message,
-  };
+  return { isTransaction: true, type, amount, currency, category: 'Other', description: message };
 }
 
-function getAIPrompt(): string {
-  const expenseCats = getCategories('expense').map(c => c.name).join(',');
-  const incomeCats = getCategories('income').map(c => c.name).join(',');
+async function getAIPrompt(DB: D1Database): Promise<string> {
+  const expenseCats = (await getCategories(DB, 'expense')).map(c => c.name).join(',');
+  const incomeCats = (await getCategories(DB, 'income')).map(c => c.name).join(',');
 
   return `Detect financial transactions in messages. Reply ONLY with JSON.
 
@@ -175,16 +159,14 @@ Persian: ۵۰۰۰۰=50000, هزار=1000, میلیون=1000000
 حقوق=income. خرج/خرید=expense.`;
 }
 
-const MODEL = process.env.OPENCODE_MODEL || 'deepseek-v4-flash-free';
-
-async function aiParse(message: string): Promise<CategorizationResult> {
+async function aiParse(DB: D1Database, message: string, openai: OpenAI, model: string): Promise<CategorizationResult> {
   const fallback: CategorizationResult = { isTransaction: false, type: 'expense', amount: 0, currency: 'USD', category: 'Other', description: '' };
 
   try {
     const completion = await openai.chat.completions.create({
-      model: MODEL,
+      model,
       messages: [
-        { role: 'system', content: getAIPrompt() },
+        { role: 'system', content: await getAIPrompt(DB) },
         { role: 'user', content: message }
       ],
       temperature: 0,
@@ -208,8 +190,8 @@ async function aiParse(message: string): Promise<CategorizationResult> {
   }
 }
 
-function getRecategorizePrompt(type: 'expense' | 'income'): string {
-  const cats = getCategories(type);
+async function getRecategorizePrompt(DB: D1Database, type: 'expense' | 'income'): Promise<string> {
+  const cats = await getCategories(DB, type);
   const catList = cats.map(c => `- ${c.name} (${c.keywords.slice(0, 5).join(', ')})`).join('\n');
 
   return `This message contains a financial transaction but the category is unclear.
@@ -221,12 +203,12 @@ Reply ONLY with the category name, nothing else.
 If it truly doesn't fit any category, reply: Other`;
 }
 
-async function aiReCategorize(message: string, original: CategorizationResult): Promise<CategorizationResult> {
+async function aiReCategorize(DB: D1Database, message: string, original: CategorizationResult, openai: OpenAI, model: string): Promise<CategorizationResult> {
   try {
     const completion = await openai.chat.completions.create({
-      model: MODEL,
+      model,
       messages: [
-        { role: 'system', content: getRecategorizePrompt(original.type) },
+        { role: 'system', content: await getRecategorizePrompt(DB, original.type) },
         { role: 'user', content: message }
       ],
       temperature: 0,
@@ -246,63 +228,65 @@ async function aiReCategorize(message: string, original: CategorizationResult): 
   }
 }
 
-export async function categorizeMessage(message: string): Promise<CategorizationResult> {
+export async function categorizeMessage(DB: D1Database, message: string, openai: OpenAI, model: string): Promise<CategorizationResult> {
   const regexResult = regexParse(message);
   if (regexResult) {
     console.log(`[REGEX] Matched: type=${regexResult.type} amount=${regexResult.amount} currency=${regexResult.currency} category=${regexResult.category}`);
 
     if (regexResult.category === 'Other') {
       console.log(`[REGEX] Category is Other, asking AI for better category`);
-      const aiResult = await aiReCategorize(message, regexResult);
-      incrementCategoryUsage(aiResult.category, aiResult.type);
+      const aiResult = await aiReCategorize(DB, message, regexResult, openai, model);
+      await incrementCategoryUsage(DB, aiResult.category, aiResult.type);
       return aiResult;
     }
 
-    incrementCategoryUsage(regexResult.category, regexResult.type);
+    await incrementCategoryUsage(DB, regexResult.category, regexResult.type);
     return regexResult;
   }
 
   console.log(`[REGEX] No match, falling back to AI`);
-  const aiResult = await aiParse(message);
+  const aiResult = await aiParse(DB, message, openai, model);
   if (aiResult.isTransaction) {
-    incrementCategoryUsage(aiResult.category, aiResult.type);
+    await incrementCategoryUsage(DB, aiResult.category, aiResult.type);
   }
   return aiResult;
 }
 
-export function learnFromCorrection(
+export async function learnFromCorrection(
+  DB: D1Database,
   originalMessage: string,
   correctCategory: string,
   type: 'expense' | 'income'
-): void {
+): Promise<void> {
   const words = originalMessage
     .replace(/[^\w\s\u0600-\u06FF]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 1);
 
-  const cats = getCategories(type);
+  const cats = await getCategories(DB, type);
   const existing = cats.find(c => c.name === correctCategory);
 
   if (existing) {
     let added = 0;
     for (const word of words) {
       if (!existing.keywords.includes(word) && added < 3) {
-        addCategoryKeyword(correctCategory, type, word);
+        await addCategoryKeyword(DB, correctCategory, type, word);
         added++;
       }
     }
-    incrementCategoryUsage(correctCategory, type);
+    await incrementCategoryUsage(DB, correctCategory, type);
   } else {
-    createCategory(correctCategory, type, words.slice(0, 5));
+    await createCategory(DB, correctCategory, type, words.slice(0, 5));
   }
 }
 
-export function learnFromAI(
+export async function learnFromAI(
+  DB: D1Database,
   message: string,
   aiCategory: string,
   type: 'expense' | 'income'
-): void {
-  const cats = getCategories(type);
+): Promise<void> {
+  const cats = await getCategories(DB, type);
   const existing = cats.find(c => c.name === aiCategory);
 
   if (!existing && aiCategory !== 'Other') {
@@ -310,6 +294,6 @@ export function learnFromAI(
       .replace(/[^\w\s\u0600-\u06FF]/g, ' ')
       .split(/\s+/)
       .filter(w => w.length > 1);
-    createCategory(aiCategory, type, words.slice(0, 5));
+    await createCategory(DB, aiCategory, type, words.slice(0, 5));
   }
 }

@@ -1,13 +1,14 @@
 # Budget Manager Bot
 
-Telegram bot that tracks expenses and earnings in group chats using AI categorization.
+Telegram bot that tracks expenses and earnings in group chats using AI categorization. Deployed on **Cloudflare Workers** with **D1** database.
 
 ## Features
 
 - **Auto-categorize**: AI detects spending/earning from natural messages
 - **Group tracking**: Monitors all messages in a group chat
 - **Reports**: Weekly and monthly reports with category/user breakdowns
-- **SQLite storage**: Persistent data (resets on Railway redeploy)
+- **D1 database**: Persistent, replicated SQLite storage
+- **Free forever**: No credit card, no trial limits
 
 ## Quick Start
 
@@ -16,33 +17,62 @@ Telegram bot that tracks expenses and earnings in group chats using AI categoriz
 - **Telegram Bot**: @BotFather → `/newbot` → copy token
 - **OpenCode Zen**: [opencode.ai/auth](https://opencode.ai/auth) → Create API Key → copy key
 
-### 2. Configure
+### 2. Install & Configure
 
 ```bash
-cp .env.example .env
+git clone https://github.com/you/budget-manager-bot.git
+cd budget-manager-bot
+npm install
 ```
 
-Fill in `.env`:
+Copy `.dev.vars` and fill in your values:
 
-```env
-TELEGRAM_BOT_TOKEN=your_token
+```bash
+BOT_TOKEN=your_token
 OPENCODE_API_KEY=sk-your_key
-OPENCODE_MODEL=deepseek-v4-flash-free
+BOT_INFO={"id":123456789,"is_bot":true,"first_name":"YourBot","username":"YourBot","can_join_groups":true,"can_read_all_group_messages":false,"supports_inline_queries":false,"can_connect_to_business":false}
 ```
 
-### 3. Deploy to Railway
+> Get `BOT_INFO` by calling: `curl https://api.telegram.org/bot<TOKEN>/getMe`
+
+### 3. Create D1 Database
 
 ```bash
-npm install -g @railway/cli
-railway login
-railway init          # or: railway link (if hitting free plan limit)
-railway up            # must run BEFORE setting variables
-railway variables set TELEGRAM_BOT_TOKEN=your_token
-railway variables set OPENCODE_API_KEY=your_key
-railway variables set OPENCODE_MODEL=deepseek-v4-flash-free
+npx wrangler d1 create budget-bot-db
 ```
 
-### 4. Add to Telegram Group
+Copy the `database_id` into `wrangler.toml`.
+
+### 4. Run Migrations
+
+```bash
+npx wrangler d1 migrations apply budget-bot-db
+```
+
+### 5. Test Locally
+
+```bash
+npm run dev
+```
+
+### 6. Deploy
+
+```bash
+# Set secrets
+npx wrangler secret put BOT_TOKEN
+npx wrangler secret put OPENCODE_API_KEY
+
+# Deploy
+npm run deploy
+```
+
+### 7. Set Telegram Webhook
+
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://budget-manager-bot.<YOUR_SUBDOMAIN>.workers.dev/webhook"
+```
+
+### 8. Add to Telegram Group
 
 Add bot as admin → send `/start`
 
@@ -56,34 +86,39 @@ Add bot as admin → send `/start`
 | `/monthly` | Monthly report |
 | `/list` | List transactions |
 | `/delete <id>` | Delete a transaction |
+| `/budget` | Set budget limits |
+| `/export` | Export CSV |
+| `/autosummary` | Auto-scheduled reports |
+| `/lang` | Switch language (fa/en) |
 
 ## Examples
 
 - "Spent 50 on groceries" → Expense, Food, $50
 - "Paid 30 for taxi" → Expense, Transport, $30
 - "Earned 500 from freelance" → Income, Freelance, $500
+- "50 هزار خرج غذا" → Expense, Food, 50,000 IRT
 
 ## Custom Categories
 
-Edit `.env`:
+Edit `wrangler.toml` or use the bot's learning system — correct a category and the bot remembers.
 
-```env
-EXPENSE_CATEGORIES=Food,Transport,Shopping,Bills,Entertainment,Health,Education,Other
-INCOME_CATEGORIES=Salary,Freelance,Gift,Refund,Other
-```
+## Architecture
 
-## Local Dev
+| Component | Technology |
+|-----------|-----------|
+| Runtime | Cloudflare Workers (V8 isolates) |
+| Database | Cloudflare D1 (serverless SQLite) |
+| Bot Framework | grammY (webhook mode) |
+| AI | OpenCode Zen API |
+| Cron | Cloudflare Cron Triggers |
 
-```bash
-npm install
-npm run dev
-```
+## Cost
 
-## Troubleshooting
+**$0 forever** on the free tier:
+- 100K requests/day
+- D1: 5GB storage, 5M reads/day
+- No credit card required
 
-| Error | Fix |
-|-------|-----|
-| "Free plan resource provision limit exceeded" | `railway link` — reuse an existing project |
-| "Project has no services" | Run `railway up` before setting variables |
-| `OPENAI_API_KEY` missing | `railway variables set OPENCODE_API_KEY=sk-...` |
-| Bot not replying | Make it admin + disable group privacy in @BotFather |
+## License
+
+MIT

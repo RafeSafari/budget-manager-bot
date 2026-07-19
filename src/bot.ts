@@ -1,4 +1,4 @@
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InlineKeyboard } from 'grammy';
 import { categorizeMessage } from './categorizer';
 import { insertTransaction, deleteTransaction, getLastTransaction, debugAllTransactions } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
@@ -159,7 +159,7 @@ bot.on('message:text', async (ctx) => {
     if (result.isTransaction && result.amount > 0) {
       const now = new Date().toISOString();
 
-      insertTransaction({
+      const txId = insertTransaction({
         chat_id: chatId,
         user_id: userId,
         username,
@@ -187,18 +187,36 @@ bot.on('message:text', async (ctx) => {
           amountStr = `${result.amount} ${result.currency}`;
       }
 
+      const keyboard = new InlineKeyboard().text('❌ حذف / Delete', `del:${txId}`);
+
       await ctx.reply(
-        `${emoji} ثبت شد! / Recorded!\n\n` +
+        `${emoji} ثبت شد! / Recorded! (#${txId})\n\n` +
         `نوع / Type: ${typeLabel}\n` +
         `مبلغ / Amount: ${amountStr}\n` +
         `دسته / Category: ${result.category}\n` +
-        `توضیحات / Description: ${result.description || '—'}`
+        `توضیحات / Description: ${result.description || '—'}`,
+        { reply_markup: keyboard }
       );
     } else {
       console.log(`[MSG] Not a transaction, skipping.`);
     }
   } catch (error) {
     console.error('[MSG] Error:', error);
+  }
+});
+
+// Handle inline button callbacks
+bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
+  const chatId = ctx.chat?.id;
+  const txId = parseInt(ctx.match[1]);
+  if (!chatId) return;
+
+  const success = deleteTransaction(txId, chatId);
+  if (success) {
+    await ctx.answerCallbackQuery({ text: `✅ تراکنش #${txId} حذف شد` });
+    await ctx.editMessageText(`❌ تراکنش #${txId} حذف شد.\nTransaction #${txId} deleted.`);
+  } else {
+    await ctx.answerCallbackQuery({ text: `❌ تراکنش #${txId} یافت نشد`, show_alert: true });
   }
 });
 

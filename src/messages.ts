@@ -101,6 +101,18 @@ const MESSAGES: Record<string, Record<Lang, string>> = {
     fa: 'تراکنش حذف شد.',
     en: 'Transaction deleted.',
   },
+  change_category_button: {
+    fa: '📂 تغییر دسته',
+    en: '📂 Change Category',
+  },
+  select_category: {
+    fa: 'دسته جدید را انتخاب کنید:',
+    en: 'Select new category:',
+  },
+  category_changed: {
+    fa: 'دسته تغییر کرد.',
+    en: 'Category changed.',
+  },
 };
 
 export function msg(key: string, lang: Lang = 'fa'): string {

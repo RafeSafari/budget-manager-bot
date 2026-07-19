@@ -96,7 +96,7 @@ export function insertTransaction(t: Omit<Transaction, 'id'>): number {
   }
 }
 
-function queryAll(sql: string, params: any[] = []): any[] {
+export function queryAll(sql: string, params: any[] = []): any[] {
   const stmt = db.prepare(sql);
   stmt.bind(params);
 
@@ -188,6 +188,13 @@ export function getLanguage(chatId: number): 'fa' | 'en' {
 export function setLanguage(chatId: number, lang: string): void {
   db.run('INSERT OR REPLACE INTO settings (chat_id, language) VALUES (?, ?)', [chatId, lang]);
   saveDatabase();
+}
+
+export function updateTransactionCategory(id: number, chatId: number, category: string): boolean {
+  db.run('UPDATE transactions SET category = ? WHERE id = ? AND chat_id = ?', [category, id, chatId]);
+  const changes = db.getRowsModified();
+  saveDatabase();
+  return changes > 0;
 }
 
 export function closeDatabase(): void {

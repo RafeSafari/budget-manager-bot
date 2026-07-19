@@ -1,6 +1,6 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction, getLastTransaction, debugAllTransactions, getLanguage, setLanguage } from './database';
+import { insertTransaction, deleteTransaction, getLastTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
 import { msg } from './messages';
 
@@ -145,7 +145,9 @@ bot.on('message:text', async (ctx) => {
           amountStr = `${result.amount} ${result.currency}`;
       }
 
-      const keyboard = new InlineKeyboard().text(msg('delete_button', lang), `del:${txId}`);
+      const keyboard = new InlineKeyboard()
+        .text(msg('change_category_button', lang), `cat:${txId}`)
+        .text(msg('delete_button', lang), `del:${txId}`);
 
       await ctx.reply(
         `${emoji} ${msg('tx_recorded', lang)} (#${txId})\n\n` +
@@ -175,6 +177,47 @@ bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
     await ctx.editMessageText(`❌ #${txId} ${msg('tx_deleted', lang)}`);
   } else {
     await ctx.answerCallbackQuery({ text: `❌ #${txId} ${msg('tx_not_found', lang)}`, show_alert: true });
+  }
+});
+
+const EXPENSE_CATS = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Other'];
+const INCOME_CATS = ['Salary', 'Freelance', 'Gift', 'Refund', 'Other'];
+
+bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
+  const chatId = ctx.chat?.id;
+  const txId = parseInt(ctx.match[1]);
+  if (!chatId) return;
+
+  const lang = getLanguage(chatId);
+  await ctx.answerCallbackQuery();
+
+  const rows = queryAll('SELECT type FROM transactions WHERE id = ? AND chat_id = ?', [txId]) as any[];
+  if (rows.length === 0) return;
+
+  const txType = rows[0].type;
+  const cats = txType === 'expense' ? EXPENSE_CATS : INCOME_CATS;
+
+  const keyboard = new InlineKeyboard();
+  for (const cat of cats) {
+    keyboard.text(cat, `setcat:${txId}:${cat}`).row();
+  }
+
+  await ctx.editMessageText(msg('select_category', lang), { reply_markup: keyboard });
+});
+
+bot.callbackQuery(/^setcat:(\d+):(.+)$/, async (ctx) => {
+  const chatId = ctx.chat?.id;
+  const txId = parseInt(ctx.match[1]);
+  const category = ctx.match[2];
+  if (!chatId) return;
+
+  const lang = getLanguage(chatId);
+  const success = updateTransactionCategory(txId, chatId, category);
+  if (success) {
+    await ctx.answerCallbackQuery({ text: `✅ ${category}` });
+    await ctx.editMessageText(`✅ #${txId} → ${category}\n${msg('category_changed', lang)}`);
+  } else {
+    await ctx.answerCallbackQuery({ text: `❌ ${msg('tx_not_found', lang)}`, show_alert: true });
   }
 });
 

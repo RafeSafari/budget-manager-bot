@@ -1,6 +1,6 @@
 import { Bot, Context } from 'grammy';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction, debugAllTransactions } from './database';
+import { insertTransaction, deleteTransaction, getLastTransaction, debugAllTransactions } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
@@ -87,10 +87,26 @@ bot.command('delete', async (ctx) => {
   if (!chatId) return ctx.reply('این دستور فقط در گروه کار می‌کند.\nThis command can only be used in a group.');
 
   const args = ctx.message?.text?.split(' ');
-  const id = args && args.length > 1 ? parseInt(args[1]) : NaN;
+  const arg = args && args.length > 1 ? args[1].toLowerCase() : '';
 
+  // /delete last or /delete latest
+  if (arg === 'last' || arg === 'latest') {
+    const last = getLastTransaction(chatId);
+    if (!last) {
+      return ctx.reply('تراکنشی وجود ندارد.\nNo transactions found.');
+    }
+    const success = deleteTransaction(last.id, chatId);
+    if (success) {
+      const emoji = last.type === 'expense' ? '💸' : '💰';
+      ctx.reply(`${emoji} آخرین تراکنش حذف شد:\nLast transaction deleted:\n\n#${last.id} | ${last.username} | ${last.amount} ${last.currency} | ${last.category}`);
+    }
+    return;
+  }
+
+  // /delete <id>
+  const id = parseInt(arg);
   if (isNaN(id)) {
-    return ctx.reply('نحوه استفاده: /delete <شماره تراکنش>\nUsage: /delete <transaction_id>');
+    return ctx.reply('نحوه استفاده:\n/delete last — حذف آخرین تراکنش\n/delete <شماره> — حذف تراکنش خاص\n\nUsage:\n/delete last — delete latest\n/delete <id> — delete by ID');
   }
 
   const success = deleteTransaction(id, chatId);

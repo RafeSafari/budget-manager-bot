@@ -163,6 +163,11 @@ export function deleteTransaction(id: number, chatId: number): boolean {
   return changes > 0;
 }
 
+export function getLastTransaction(chatId: number): Transaction | null {
+  const rows = queryAll('SELECT * FROM transactions WHERE chat_id = ? ORDER BY id DESC LIMIT 1', [chatId]);
+  return rows.length > 0 ? rows[0] as Transaction : null;
+}
+
 export function debugAllTransactions(): any[] {
   return queryAll('SELECT id, chat_id, user_id, username, amount, currency, category, type, created_at FROM transactions ORDER BY id DESC');
 }

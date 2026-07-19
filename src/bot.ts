@@ -1,6 +1,7 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
+import cron from 'node-cron';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll, getCategories, setBudget, getBudgets, getBudget, deleteBudget, getSpentThisMonth } from './database';
+import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll, getCategories, setBudget, getBudgets, getBudget, deleteBudget, getSpentThisMonth, setAutoSummary, getAutoSummary, getAllEnabledAutoSummaries } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
 import { msg } from './messages';
 import { learnFromCorrection } from './categorizer';
@@ -187,6 +188,70 @@ bot.command('export', async (ctx) => {
     new (require('grammy').InputFile)(buffer, `budget-${month}.csv`),
     { caption: lang === 'fa' ? `تراکنش‌های ${month}` : `Transactions for ${month}` }
   );
+});
+
+bot.command('autosummary', async (ctx) => {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+  const lang = getLanguage(chatId);
+  const args = ctx.message?.text?.split(' ');
+  const sub = args?.[1]?.toLowerCase();
+
+  if (!sub || sub === 'status') {
+    const settings = getAutoSummary(chatId);
+    if (!settings || !settings.enabled) {
+      return ctx.reply(lang === 'fa'
+        ? '📭 خودکار خاموش است.\n\nنحوه استفاده:\n/autosummary daily 09:00 - هر روز ساعت ۹\n/autosummary weekly Sunday 10:00 - هر یکشنبه ساعت ۱۰\n/autosummary off - خاموش'
+        : '📭 Auto-summary is off.\n\nUsage:\n/autosummary daily 09:00 - Daily at 9am\n/autosummary weekly Sunday 10:00 - Weekly on Sunday at 10am\n/autosummary off - Turn off');
+    }
+    const schedule = settings.day
+      ? `${settings.schedule_type} ${settings.day} ${settings.time}`
+      : `${settings.schedule_type} ${settings.time}`;
+    return ctx.reply(lang === 'fa'
+      ? `📬 خودکار فعال است: ${schedule}\n\n/autosummary off - خاموش`
+      : `📬 Auto-summary active: ${schedule}\n\n/autosummary off - Turn off`);
+  }
+
+  if (sub === 'off') {
+    setAutoSummary(chatId, false, 'daily', '09:00');
+    refreshScheduledJob(chatId);
+    return ctx.reply(lang === 'fa' ? '📭 خودکار خاموش شد.' : '📭 Auto-summary turned off.');
+  }
+
+  if (sub === 'daily') {
+    const time = args?.[2] || '09:00';
+    if (!/^\d{2}:\d{2}$/.test(time)) {
+      return ctx.reply(lang === 'fa' ? 'فرمت زمان نامعتبر است. مثال: 09:00' : 'Invalid time format. Example: 09:00');
+    }
+    setAutoSummary(chatId, true, 'daily', time);
+    refreshScheduledJob(chatId);
+    return ctx.reply(lang === 'fa'
+      ? `✅ هر روز ساعت ${time} گزارش ارسال می‌شود.`
+      : `✅ Daily summary at ${time}.`);
+  }
+
+  if (sub === 'weekly') {
+    const day = args?.[2]?.toLowerCase();
+    const time = args?.[3] || '09:00';
+    const validDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    if (!day || !validDays.includes(day)) {
+      return ctx.reply(lang === 'fa'
+        ? 'روز نامعتبر است. مثال: /autosummary weekly sunday 09:00\nروزها: sunday, monday, tuesday, ...'
+        : 'Invalid day. Example: /autosummary weekly sunday 09:00\nDays: sunday, monday, tuesday, ...');
+    }
+    if (!/^\d{2}:\d{2}$/.test(time)) {
+      return ctx.reply(lang === 'fa' ? 'فرمت زمان نامعتبر است. مثال: 09:00' : 'Invalid time format. Example: 09:00');
+    }
+    setAutoSummary(chatId, true, 'weekly', time, day);
+    refreshScheduledJob(chatId);
+    return ctx.reply(lang === 'fa'
+      ? `✅ هر ${day} ساعت ${time} گزارش ارسال می‌شود.`
+      : `✅ Weekly summary on ${day} at ${time}.`);
+  }
+
+  return ctx.reply(lang === 'fa'
+    ? 'نحوه استفاده:\n/autosummary daily 09:00\n/autosummary weekly sunday 09:00\n/autosummary off'
+    : 'Usage:\n/autosummary daily 09:00\n/autosummary weekly sunday 09:00\n/autosummary off');
 });
 
 bot.on('message:text', async (ctx) => {
@@ -413,13 +478,81 @@ bot.catch((err) => {
   console.error('Bot error:', err);
 });
 
+const scheduledJobs = new Map<string, any>();
+
+function getCronExpression(settings: any): string {
+  const [hour, minute] = settings.time.split(':');
+  if (settings.schedule_type === 'daily') {
+    return `${minute} ${hour} * * *`;
+  }
+  if (settings.schedule_type === 'weekly') {
+    const dayMap: Record<string, string> = {
+      sunday: '0', monday: '1', tuesday: '2', wednesday: '3',
+      thursday: '4', friday: '5', saturday: '6',
+    };
+    return `${minute} ${hour} * * ${dayMap[settings.day] || '0'}`;
+  }
+  return `${minute} ${hour} * * *`;
+}
+
+function startScheduledJobs(): void {
+  const allSummaries = getAllEnabledAutoSummaries();
+  for (const settings of allSummaries) {
+    scheduleJob(settings);
+  }
+  console.log(`[CRON] Started ${allSummaries.length} scheduled jobs`);
+}
+
+function scheduleJob(settings: any): void {
+  const key = `summary_${settings.chat_id}`;
+  if (scheduledJobs.has(key)) {
+    scheduledJobs.get(key)!.stop();
+  }
+
+  const cronExpr = getCronExpression(settings);
+  console.log(`[CRON] Scheduling chat=${settings.chat_id}: ${cronExpr}`);
+
+  const task = cron.schedule(cronExpr, async () => {
+    try {
+      const report = generateWeeklyReport(settings.chat_id);
+      await bot.api.sendMessage(settings.chat_id, report);
+      console.log(`[CRON] Sent summary to chat=${settings.chat_id}`);
+    } catch (error) {
+      console.error(`[CRON] Failed to send summary to chat=${settings.chat_id}:`, error);
+    }
+  });
+
+  scheduledJobs.set(key, task);
+}
+
+export function refreshScheduledJob(chatId: number): void {
+  const settings = getAutoSummary(chatId);
+  const key = `summary_${chatId}`;
+
+  if (scheduledJobs.has(key)) {
+    scheduledJobs.get(key)!.stop();
+    scheduledJobs.delete(key);
+  }
+
+  if (settings && settings.enabled) {
+    scheduleJob(settings);
+  }
+}
+
 export function startBot(): void {
   console.log('Starting Budget Manager Bot...');
   bot.start({
-    onStart: () => console.log('Bot is running!'),
+    onStart: () => {
+      console.log('Bot is running!');
+      startScheduledJobs();
+    },
   });
 }
 
 export function stopBot(): void {
+  for (const [key, task] of scheduledJobs) {
+    task.stop();
+  }
+  scheduledJobs.clear();
   bot.stop();
 }

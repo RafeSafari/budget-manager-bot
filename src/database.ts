@@ -103,6 +103,16 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS auto_summary (
+      chat_id INTEGER PRIMARY KEY,
+      enabled INTEGER DEFAULT 0,
+      schedule_type TEXT DEFAULT 'daily',
+      time TEXT DEFAULT '09:00',
+      day TEXT DEFAULT NULL
+    )
+  `);
+
   seedDefaultCategories();
   saveDatabase();
 }
@@ -532,6 +542,31 @@ export function getSpentThisMonth(chatId: number, category: string): { total: nu
     [chatId, category, 'expense', monthStart]
   );
   return rows.length > 0 ? { total: rows[0].total || 0, currency: rows[0].currency || 'IRT' } : { total: 0, currency: 'IRT' };
+}
+
+export interface AutoSummary {
+  chat_id: number;
+  enabled: number;
+  schedule_type: string;
+  time: string;
+  day: string | null;
+}
+
+export function setAutoSummary(chatId: number, enabled: boolean, scheduleType: string, time: string, day: string | null = null): void {
+  db.run(
+    'INSERT OR REPLACE INTO auto_summary (chat_id, enabled, schedule_type, time, day) VALUES (?, ?, ?, ?, ?)',
+    [chatId, enabled ? 1 : 0, scheduleType, time, day]
+  );
+  saveDatabase();
+}
+
+export function getAutoSummary(chatId: number): AutoSummary | null {
+  const rows = queryAll('SELECT * FROM auto_summary WHERE chat_id = ?', [chatId]);
+  return rows.length > 0 ? rows[0] as AutoSummary : null;
+}
+
+export function getAllEnabledAutoSummaries(): AutoSummary[] {
+  return queryAll('SELECT * FROM auto_summary WHERE enabled = 1') as AutoSummary[];
 }
 
 export function closeDatabase(): void {

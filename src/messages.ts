@@ -113,6 +113,18 @@ const MESSAGES: Record<string, Record<Lang, string>> = {
     fa: 'دسته تغییر کرد.',
     en: 'Category changed.',
   },
+  undo_button: {
+    fa: '↩️ بازگردانی',
+    en: '↩️ Undo',
+  },
+  tx_undone: {
+    fa: 'بازگردانده شد.',
+    en: 'Restored.',
+  },
+  deleted_label: {
+    fa: 'حذف شد',
+    en: 'Deleted',
+  },
 };
 
 export function msg(key: string, lang: Lang = 'fa'): string {

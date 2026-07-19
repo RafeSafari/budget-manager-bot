@@ -175,6 +175,11 @@ export function getLastTransaction(chatId: number): Transaction | null {
   return rows.length > 0 ? rows[0] as Transaction : null;
 }
 
+export function getTransaction(id: number, chatId: number): Transaction | null {
+  const rows = queryAll('SELECT * FROM transactions WHERE id = ? AND chat_id = ?', [id, chatId]);
+  return rows.length > 0 ? rows[0] as Transaction : null;
+}
+
 export function debugAllTransactions(): any[] {
   return queryAll('SELECT id, chat_id, user_id, username, amount, currency, category, type, created_at FROM transactions ORDER BY id DESC');
 }

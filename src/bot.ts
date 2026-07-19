@@ -1,6 +1,6 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction, getLastTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll } from './database';
+import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
 import { msg } from './messages';
 
@@ -63,25 +63,31 @@ bot.command('delete', async (ctx) => {
   const args = ctx.message?.text?.split(' ');
   const arg = args && args.length > 1 ? args[1].toLowerCase() : '';
 
+  let txToDelete: any = null;
+
   if (arg === 'last' || arg === 'latest') {
-    const last = getLastTransaction(chatId);
-    if (!last) return ctx.reply(msg('no_tx_to_delete', lang));
-    const success = deleteTransaction(last.id, chatId);
-    if (success) {
-      const emoji = last.type === 'expense' ? '💸' : '💰';
-      ctx.reply(`${emoji} ${msg('last_tx_deleted', lang)}\n#${last.id} | ${last.username} | ${last.amount} ${last.currency} | ${last.category}`);
-    }
-    return;
+    txToDelete = getLastTransaction(chatId);
+    if (!txToDelete) return ctx.reply(msg('no_tx_to_delete', lang));
+  } else {
+    const id = parseInt(arg);
+    if (isNaN(id)) return ctx.reply(msg('delete_usage', lang));
+    txToDelete = getTransaction(id, chatId);
+    if (!txToDelete) return ctx.reply(`❌ #${id} ${msg('tx_not_found', lang)}`);
   }
 
-  const id = parseInt(arg);
-  if (isNaN(id)) return ctx.reply(msg('delete_usage', lang));
-
-  const success = deleteTransaction(id, chatId);
+  const success = deleteTransaction(txToDelete.id, chatId);
   if (success) {
-    ctx.reply(`✅ #${id} ${msg('tx_deleted', lang)}`);
-  } else {
-    ctx.reply(`❌ #${id} ${msg('tx_not_found', lang)}`);
+    const emoji = txToDelete.type === 'expense' ? '💸' : '💰';
+    const typeLabel = txToDelete.type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
+    const keyboard = new InlineKeyboard().text(msg('undo_button', lang), `undo:${txToDelete.id}:${txToDelete.chat_id}:${txToDelete.user_id}:${encodeURIComponent(txToDelete.username)}:${txToDelete.amount}:${txToDelete.currency}:${encodeURIComponent(txToDelete.category)}:${txToDelete.type}:${encodeURIComponent(txToDelete.description || '')}:${encodeURIComponent(txToDelete.original_message)}:${encodeURIComponent(txToDelete.created_at)}`);
+    ctx.reply(
+      `${emoji} ❌ #${txToDelete.id} ${msg('deleted_label', lang)}\n\n` +
+      `${typeLabel} | ${txToDelete.amount} ${txToDelete.currency}\n` +
+      `Category: ${txToDelete.category}\n` +
+      `Description: ${txToDelete.description || '—'}\n` +
+      `User: ${txToDelete.username}`,
+      { reply_markup: keyboard }
+    );
   }
 });
 
@@ -171,10 +177,26 @@ bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
   if (!chatId) return;
 
   const lang = getLanguage(chatId);
+  const tx = getTransaction(txId, chatId);
+  if (!tx) {
+    await ctx.answerCallbackQuery({ text: `❌ #${txId} ${msg('tx_not_found', lang)}`, show_alert: true });
+    return;
+  }
+
   const success = deleteTransaction(txId, chatId);
   if (success) {
+    const emoji = tx.type === 'expense' ? '💸' : '💰';
+    const typeLabel = tx.type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
+    const keyboard = new InlineKeyboard().text(msg('undo_button', lang), `undo:${tx.id}:${tx.chat_id}:${tx.user_id}:${encodeURIComponent(tx.username)}:${tx.amount}:${tx.currency}:${encodeURIComponent(tx.category)}:${tx.type}:${encodeURIComponent(tx.description || '')}:${encodeURIComponent(tx.original_message)}:${encodeURIComponent(tx.created_at)}`);
     await ctx.answerCallbackQuery({ text: `✅ #${txId} ${msg('tx_deleted', lang)}` });
-    await ctx.editMessageText(`❌ #${txId} ${msg('tx_deleted', lang)}`);
+    await ctx.editMessageText(
+      `${emoji} ❌ #${tx.id} ${msg('deleted_label', lang)}\n\n` +
+      `${typeLabel} | ${tx.amount} ${tx.currency}\n` +
+      `Category: ${tx.category}\n` +
+      `Description: ${tx.description || '—'}\n` +
+      `User: ${tx.username}`,
+      { reply_markup: keyboard }
+    );
   } else {
     await ctx.answerCallbackQuery({ text: `❌ #${txId} ${msg('tx_not_found', lang)}`, show_alert: true });
   }
@@ -219,6 +241,40 @@ bot.callbackQuery(/^setcat:(\d+):(.+)$/, async (ctx) => {
   } else {
     await ctx.answerCallbackQuery({ text: `❌ ${msg('tx_not_found', lang)}`, show_alert: true });
   }
+});
+
+bot.callbackQuery(/^undo:(\d+):(-?\d+):(\d+):(.+):(\d+):([A-Z]+):(.+):(\w+):(.+):(.+):(.+)$/, async (ctx) => {
+  const [, id, chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at] = ctx.match;
+  const lang = getLanguage(parseInt(chat_id));
+
+  const txId = insertTransaction({
+    chat_id: parseInt(chat_id),
+    user_id: parseInt(user_id),
+    username: decodeURIComponent(username),
+    amount: parseFloat(amount),
+    currency,
+    category: decodeURIComponent(category),
+    type: type as 'expense' | 'income',
+    description: decodeURIComponent(description),
+    original_message: decodeURIComponent(original_message),
+    created_at: decodeURIComponent(created_at),
+  });
+
+  const emoji = type === 'expense' ? '💸' : '💰';
+  const typeLabel = type === 'expense' ? msg('type_expense', lang) : msg('type_income', lang);
+  const keyboard = new InlineKeyboard()
+    .text(msg('change_category_button', lang), `cat:${txId}`)
+    .text(msg('delete_button', lang), `del:${txId}`);
+
+  await ctx.answerCallbackQuery({ text: `✅ ${msg('tx_undone', lang)}` });
+  await ctx.editMessageText(
+    `${emoji} ${msg('tx_recorded', lang)} (#${txId})\n\n` +
+    `${typeLabel} | ${amount} ${currency}\n` +
+    `Category: ${decodeURIComponent(category)}\n` +
+    `Description: ${decodeURIComponent(description) || '—'}\n` +
+    `User: ${decodeURIComponent(username)}`,
+    { reply_markup: keyboard }
+  );
 });
 
 bot.catch((err) => {

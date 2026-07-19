@@ -182,6 +182,10 @@ railway variables
 railway variables set OPENCODE_API_KEY="sk-your_key"
 ```
 
+### Healthcheck failed / service unavailable
+
+Railway expects an HTTP endpoint at `/` if `healthcheckPath` is set. This is a bot, not a web server — make sure `railway.json` does **not** have `healthcheckPath`. If it does, remove it and redeploy.
+
 ### Bot does not reply in group
 
 - Make sure the bot is an **admin** in the group

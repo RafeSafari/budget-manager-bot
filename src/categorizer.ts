@@ -334,15 +334,67 @@ async function aiParse(message: string): Promise<CategorizationResult> {
   }
 }
 
+const RECATEGORIZE_PROMPT = `This message contains a financial transaction but the category is unclear.
+
+Pick the best category from this list:
+- Food (غذا, خوراکی, رستوران, نوشیدنی, میوه, سبزی, گوشت, نان)
+- Transport (حمل‌ونقل, تاکسی, بنزین, ماشین, مترو, اتوبوس)
+- Shopping (خرید, لباس, کفش, کیف, آرایشی, الکترونیک)
+- Bills (قبض, آب, برق, گاز, تلفن, اینترنت, اجاره, شارژ)
+- Entertainment (سرگرمی, ورزش, بازی, سینما, مسافرت, هتل)
+- Health (سلامت, دارو, دکتر, بیمارستان, دندانپزشک)
+- Education (آموزش, کلاس, کتاب, مدرسه, دانشگاه)
+- Salary (حقوق, دستمزد, پاداش)
+- Freelance (فریلنسر, پروژه, قرارداد)
+- Gift (هدیه, عیدی, جایزه, کادو)
+- Refund (بازپرداخت, برگشت پول, مرجوع)
+
+Reply ONLY with the category name, nothing else.
+If it truly doesn't fit any category, reply: Other`;
+
+async function aiReCategorize(message: string, original: CategorizationResult): Promise<CategorizationResult> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: RECATEGORIZE_PROMPT },
+        { role: 'user', content: message }
+      ],
+      temperature: 0,
+      max_tokens: 20,
+    });
+
+    const category = completion.choices[0]?.message?.content?.trim() || 'Other';
+    console.log(`[AI-RECAT] "${message}" → "${category}"`);
+
+    // If AI says Other, keep original. Otherwise use AI's category.
+    if (category && category !== 'Other') {
+      return { ...original, category };
+    }
+    return original;
+  } catch (error) {
+    console.error('[AI-RECAT] Error:', error);
+    return original;
+  }
+}
+
 export async function categorizeMessage(message: string): Promise<CategorizationResult> {
   // Step 1: Try regex first (fast, no API call)
   const regexResult = regexParse(message);
   if (regexResult) {
     console.log(`[REGEX] Matched: type=${regexResult.type} amount=${regexResult.amount} currency=${regexResult.currency} category=${regexResult.category}`);
+
+    // Step 2: If category is Other, ask AI for better categorization
+    if (regexResult.category === 'Other') {
+      console.log(`[REGEX] Category is Other, asking AI for better category`);
+      const aiResult = await aiReCategorize(message, regexResult);
+      return aiResult;
+    }
+
     return regexResult;
   }
 
-  // Step 2: Fallback to AI for ambiguous messages
+  // Step 3: Fallback to AI for ambiguous messages
   console.log(`[REGEX] No match, falling back to AI`);
   return aiParse(message);
 }

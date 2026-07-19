@@ -48,21 +48,23 @@ OPENCODE_MODEL=deepseek-v4-flash-free
 
 ```bash
 # Install Railway CLI
-pnpm install -g @railway/cli
+npm install -g @railway/cli
 
 # Login
 railway login
 
 # Initialize project (name: Budget Analyzer Telegram AI Bot)
 railway init
+# If "Free plan resource provision limit exceeded", reuse an existing project:
+# railway link
 
-# Add environment variables
+# Deploy (must be first to create the service)
+railway up
+
+# Add environment variables (after deploy creates the service)
 railway variables set TELEGRAM_BOT_TOKEN=your_token
 railway variables set OPENCODE_API_KEY=your_key
 railway variables set OPENCODE_MODEL=deepseek-v4-flash-free
-
-# Deploy
-railway up
 ```
 
 ## Commands
@@ -114,11 +116,21 @@ Paid models (pay per token):
 | `glm-5.2` | $1.40/M | $4.40/M |
 | `kimi-k2.5` | $0.60/M | $3.00/M |
 
+## Troubleshooting
+
+### Railway: "Free plan resource provision limit exceeded"
+
+If `railway init` fails, reuse an existing project:
+
+```bash
+railway link
+```
+
 ## Local Development
 
 ```bash
-pnpm install
-pnpm run dev
+npm install
+npm run dev
 ```
 
 **Note**: On Windows, `better-sqlite3` requires Visual Studio Build Tools. On Linux/macOS it compiles automatically.

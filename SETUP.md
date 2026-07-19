@@ -8,8 +8,8 @@ This bot joins a Telegram group, reads all messages, uses AI to detect spending/
 
 ## Prerequisites
 
-- Node.js 20+ installed
-- pnpm installed (`npm install -g pnpm`)
+- Node.js 22+ installed
+- npm installed (comes with Node.js)
 - A Telegram account
 - An OpenCode Zen account (free models available)
 - A GitHub account (for Railway deployment)
@@ -71,9 +71,9 @@ INCOME_CATEGORIES=Salary,Freelance,Gift,Refund,Other
 Build and run the bot on your machine:
 
 ```bash
-pnpm install
-pnpm run build
-pnpm start
+npm install
+npm run build
+npm start
 ```
 
 If successful, you will see:
@@ -132,15 +132,16 @@ railway init
 - Select **"Empty Project"**
 - Enter a project name (e.g., `budget-bot`)
 
-### 5d. Set Environment Variables
+> **Hit "Free plan resource provision limit exceeded"?**
+> If `railway init` fails with this error, you've hit Railway's free plan limit. Instead, reuse an existing empty project:
+>
+> ```bash
+> railway link
+> ```
+>
+> Select an existing project from the list (e.g., one you created before but no longer use). This skips the limit entirely.
 
-```bash
-railway variables set TELEGRAM_BOT_TOKEN="7123456789:AAHn3-wkjfasf98234lkjsd9f"
-railway variables set OPENCODE_API_KEY="sk-crZRuOzKfQWANENHhm2lnLTQXHBucCFQ3JcSGn1OGCNjka4Ry4QGCAlTgKpEhi1y"
-railway variables set OPENCODE_MODEL="deepseek-v4-flash-free"
-```
-
-### 5e. Deploy
+### 5d. Deploy
 
 ```bash
 railway up
@@ -148,9 +149,19 @@ railway up
 
 Railway will:
 1. Detect the `Dockerfile`
-2. Build a Linux container with Node.js 20
+2. Build a Linux container with Node.js 22
 3. Install all dependencies (including `better-sqlite3` which compiles on Linux)
 4. Start the bot
+
+### 5e. Set Environment Variables
+
+```bash
+railway variables set TELEGRAM_BOT_TOKEN="7123456789:AAHn3-wkjfasf98234lkjsd9f"
+railway variables set OPENCODE_API_KEY="sk-crZRuOzKfQWANENHhm2lnLTQXHBucCFQ3JcSGn1OGCNjka4Ry4QGCAlTgKpEhi1y"
+railway variables set OPENCODE_MODEL="deepseek-v4-flash-free"
+```
+
+> **Why deploy first?** Railway needs a service to exist before you can set variables on it. If you set variables before deploying, you'll get "Project has no services."
 
 ### 5f. Verify Deployment
 
@@ -276,6 +287,16 @@ railway service delete
 ---
 
 ## Troubleshooting
+
+### Railway: "Free plan resource provision limit exceeded"
+
+Railway's free plan limits the number of active projects. If `railway init` throws this error, reuse an existing empty project:
+
+```bash
+railway link
+```
+
+Select the project you want to reuse from the list.
 
 ### Bot does not reply in group
 

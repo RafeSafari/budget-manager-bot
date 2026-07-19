@@ -18,6 +18,14 @@ export interface Transaction {
   created_at: string;
 }
 
+export interface Category {
+  id: number;
+  name: string;
+  type: 'expense' | 'income';
+  keywords: string[];
+  usage_count: number;
+}
+
 let db: SqlJsDatabase;
 
 export async function initDatabase(): Promise<void> {
@@ -63,7 +71,47 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT CHECK(type IN ('expense', 'income')) NOT NULL,
+      keywords TEXT DEFAULT '[]',
+      usage_count INTEGER DEFAULT 0,
+      UNIQUE(name, type)
+    )
+  `);
+
+  seedDefaultCategories();
   saveDatabase();
+}
+
+function seedDefaultCategories(): void {
+  const existing = queryAll('SELECT COUNT(*) as cnt FROM categories');
+  if (existing[0]?.cnt > 0) return;
+
+  const defaults: { name: string; type: 'expense' | 'income'; keywords: string[] }[] = [
+    { name: 'Food', type: 'expense', keywords: ['غذا', 'ناهار', 'شام', 'صبحانه', 'رستوران', 'کافه', 'فست فود', 'پیتزا', 'برگر', 'ساندویچ', 'قهوه', 'چای', 'شکلات', 'شیرینی', 'کیک', 'خوراکی', 'خوردن', 'برنج', 'مرغ', 'گوشت', 'ماهی', 'میوه', 'نان', 'نوشابه', 'سوپرمارکت', 'بقالی', 'سلمنی', 'سالمون', 'سوسیس', 'کالباس', 'کباب', 'جوجه', 'دمنوش'] },
+    { name: 'Transport', type: 'expense', keywords: ['تاکسی', 'مترو', 'اتوبوس', 'ون', 'بنزین', 'گاز', 'ماشین', 'خودرو', 'اسنپ', 'تپسی', 'پیک', 'مسافربر', 'آژانس', 'گاراژ', 'عوارضی', 'لاستیک', 'مکانیک', 'قطار', 'هواپیما'] },
+    { name: 'Shopping', type: 'expense', keywords: ['خرید', 'فروشگاه', 'مغازه', 'بازار', 'لباس', 'کفش', 'کیف', 'عینک', 'ساعت', 'انگشتر', 'آرایشی', 'عطر', 'دیجی‌کالا', 'لپ‌تاپ', 'موبایل'] },
+    { name: 'Bills', type: 'expense', keywords: ['قبض', 'آب', 'برق', 'گاز', 'تلفن', 'اینترنت', 'شارژ', 'اجاره', 'جریمه', 'مالیات', 'عضویت', 'اشتراک', 'پارکینگ'] },
+    { name: 'Entertainment', type: 'expense', keywords: ['سینما', 'فیلم', 'بازی', 'گیم', 'تفریح', 'کنسرت', 'موسیقی', 'ورزش', 'باشگاه', 'کتاب', 'مسافرت', 'سفر', 'هتل', 'بلیط', 'شهربازی'] },
+    { name: 'Health', type: 'expense', keywords: ['دارو', 'داروخانه', 'قرص', 'درمان', 'دکتر', 'بیمارستان', 'آزمایش', 'دندانپزشک', 'واکسن', 'ویتامین', 'جراحی'] },
+    { name: 'Education', type: 'expense', keywords: ['آموزش', 'کلاس', 'دوره', 'کتاب', 'مدرسه', 'دانشگاه', 'شهریه', 'تدریس', 'معلم', 'کنکور', 'گواهینامه', 'زبان', 'برنامه‌نویسی'] },
+    { name: 'Salary', type: 'income', keywords: ['حقوق', 'دستمزد', 'پاداش', 'کارانه', 'اضافه‌کار', 'بازنشستگی'] },
+    { name: 'Freelance', type: 'income', keywords: ['فریلنسر', 'پروژه', 'قرارداد', 'مشاوره', 'طراحی', 'برنامه‌نویسی'] },
+    { name: 'Gift', type: 'income', keywords: ['هدیه', 'عیدی', 'جایزه', 'کادو', 'خیرات', 'صدقه'] },
+    { name: 'Refund', type: 'income', keywords: ['بازپرداخت', 'برگشت پول', 'مرجوع', 'استرداد'] },
+    { name: 'Other', type: 'expense', keywords: [] },
+    { name: 'Other', type: 'income', keywords: [] },
+  ];
+
+  for (const cat of defaults) {
+    db.run(
+      'INSERT OR IGNORE INTO categories (name, type, keywords, usage_count) VALUES (?, ?, ?, 0)',
+      [cat.name, cat.type, JSON.stringify(cat.keywords)]
+    );
+  }
 }
 
 function saveDatabase(): void {
@@ -200,6 +248,60 @@ export function updateTransactionCategory(id: number, chatId: number, category: 
   const changes = db.getRowsModified();
   saveDatabase();
   return changes > 0;
+}
+
+export function getCategories(type: 'expense' | 'income'): Category[] {
+  const rows = queryAll('SELECT * FROM categories WHERE type = ? ORDER BY usage_count DESC, name', [type]);
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    keywords: JSON.parse(r.keywords || '[]'),
+    usage_count: r.usage_count,
+  }));
+}
+
+export function getAllCategoryKeywords(type: 'expense' | 'income'): Record<string, string[]> {
+  const cats = getCategories(type);
+  const result: Record<string, string[]> = {};
+  for (const cat of cats) {
+    result[cat.name] = cat.keywords;
+  }
+  return result;
+}
+
+export function incrementCategoryUsage(categoryName: string, type: 'expense' | 'income'): void {
+  db.run('UPDATE categories SET usage_count = usage_count + 1 WHERE name = ? AND type = ?', [categoryName, type]);
+  saveDatabase();
+}
+
+export function addCategoryKeyword(categoryName: string, type: 'expense' | 'income', keyword: string): void {
+  const rows = queryAll('SELECT keywords FROM categories WHERE name = ? AND type = ?', [categoryName, type]);
+  if (rows.length === 0) return;
+
+  const keywords: string[] = JSON.parse(rows[0].keywords || '[]');
+  if (!keywords.includes(keyword)) {
+    keywords.push(keyword);
+    db.run('UPDATE categories SET keywords = ? WHERE name = ? AND type = ?', [JSON.stringify(keywords), categoryName, type]);
+    saveDatabase();
+  }
+}
+
+export function createCategory(name: string, type: 'expense' | 'income', keywords: string[] = []): number {
+  try {
+    db.run(
+      'INSERT INTO categories (name, type, keywords, usage_count) VALUES (?, ?, ?, 1)',
+      [name, type, JSON.stringify(keywords)]
+    );
+    const result = db.exec('SELECT last_insert_rowid() as id');
+    const id = result[0]?.values[0]?.[0] as number;
+    saveDatabase();
+    console.log(`[DB] Created category "${name}" (${type})`);
+    return id;
+  } catch (error) {
+    console.error('[DB] CREATE CATEGORY FAILED:', error);
+    return -1;
+  }
 }
 
 export function closeDatabase(): void {

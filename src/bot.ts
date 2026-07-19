@@ -1,8 +1,9 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll } from './database';
+import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll, getCategories } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
 import { msg } from './messages';
+import { learnFromCorrection } from './categorizer';
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
 const monitoredChats = new Set<number>();
@@ -202,9 +203,6 @@ bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
   }
 });
 
-const EXPENSE_CATS = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Other'];
-const INCOME_CATS = ['Salary', 'Freelance', 'Gift', 'Refund', 'Other'];
-
 bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
   const chatId = ctx.chat?.id;
   const txId = parseInt(ctx.match[1]);
@@ -217,11 +215,11 @@ bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
   if (rows.length === 0) return;
 
   const txType = rows[0].type;
-  const cats = txType === 'expense' ? EXPENSE_CATS : INCOME_CATS;
+  const cats = getCategories(txType);
 
   const keyboard = new InlineKeyboard();
   for (const cat of cats) {
-    keyboard.text(cat, `setcat:${txId}:${cat}`).row();
+    keyboard.text(cat.name, `setcat:${txId}:${cat.name}`).row();
   }
 
   await ctx.editMessageText(msg('select_category', lang), { reply_markup: keyboard });
@@ -234,8 +232,13 @@ bot.callbackQuery(/^setcat:(\d+):(.+)$/, async (ctx) => {
   if (!chatId) return;
 
   const lang = getLanguage(chatId);
+  const tx = getTransaction(txId, chatId);
+
   const success = updateTransactionCategory(txId, chatId, category);
   if (success) {
+    if (tx) {
+      learnFromCorrection(tx.original_message, category, tx.type);
+    }
     await ctx.answerCallbackQuery({ text: `✅ ${category}` });
     await ctx.editMessageText(`✅ #${txId} → ${category}\n${msg('category_changed', lang)}`);
   } else {

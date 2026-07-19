@@ -1,56 +1,51 @@
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
-import { getCategorySummary, getUserSummary, getTransactions, Transaction } from './database';
+import { getCategorySummary, getUserSummary, getTransactions, Transaction, getLanguage } from './database';
+import { msg } from './messages';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  Food: 'غذا / Food',
-  Transport: 'حمل‌ونقل / Transport',
-  Shopping: 'خرید / Shopping',
-  Bills: ' قبض / Bills',
-  Entertainment: 'سرگرمی / Entertainment',
-  Health: 'سلامت / Health',
-  Education: 'آموزش / Education',
-  Salary: 'حقوق / Salary',
-  Freelance: 'فریلنسری / Freelance',
-  Gift: 'هدیه / Gift',
-  Refund: 'بازپرداخت / Refund',
-  Other: 'سایر / Other',
+type Lang = 'fa' | 'en';
+
+const CATEGORY_LABELS: Record<string, Record<Lang, string>> = {
+  Food: { fa: 'غذا', en: 'Food' },
+  Transport: { fa: 'حمل‌ونقل', en: 'Transport' },
+  Shopping: { fa: 'خرید', en: 'Shopping' },
+  Bills: { fa: 'قبض', en: 'Bills' },
+  Entertainment: { fa: 'سرگرمی', en: 'Entertainment' },
+  Health: { fa: 'سلامت', en: 'Health' },
+  Education: { fa: 'آموزش', en: 'Education' },
+  Salary: { fa: 'حقوق', en: 'Salary' },
+  Freelance: { fa: 'فریلنسری', en: 'Freelance' },
+  Gift: { fa: 'هدیه', en: 'Gift' },
+  Refund: { fa: 'بازپرداخت', en: 'Refund' },
+  Other: { fa: 'سایر', en: 'Other' },
 };
 
-function formatCurrency(amount: number, currency: string = 'USD'): string {
+const CATEGORY_EMOJIS: Record<string, string> = {
+  Food: '🍔', Transport: '🚗', Shopping: '🛒', Bills: '📄',
+  Entertainment: '🎮', Health: '💊', Education: '📚',
+  Salary: '💰', Freelance: '💻', Gift: '🎁', Refund: '💸', Other: '📌',
+};
+
+function formatCurrency(amount: number, currency: string = 'IRT'): string {
   switch (currency) {
     case 'IRT':
       return `${amount.toLocaleString('fa-IR')} تومان`;
     case 'IRR':
       return `${amount.toLocaleString('fa-IR')} ریال`;
+    case 'USD':
+      return `$${amount.toLocaleString('en-US')}`;
+    case 'EUR':
+      return `€${amount.toLocaleString('en-US')}`;
     default:
-      try {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
-      } catch {
-        return `${amount.toLocaleString()} ${currency}`;
-      }
+      return `${amount.toLocaleString()} ${currency}`;
   }
 }
 
-function getCategoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] || `${category} / ${category}`;
+function getCategoryLabel(category: string, lang: Lang): string {
+  return CATEGORY_LABELS[category]?.[lang] || category;
 }
 
 function getCategoryEmoji(category: string): string {
-  const emojis: Record<string, string> = {
-    Food: '🍔',
-    Transport: '🚗',
-    Shopping: '🛒',
-    Bills: '📄',
-    Entertainment: '🎮',
-    Health: '💊',
-    Education: '📚',
-    Salary: '💰',
-    Freelance: '💻',
-    Gift: '🎁',
-    Refund: '💸',
-    Other: '📌',
-  };
-  return emojis[category] || '📌';
+  return CATEGORY_EMOJIS[category] || '📌';
 }
 
 export function generateWeeklyReport(chatId: number): string {
@@ -60,7 +55,7 @@ export function generateWeeklyReport(chatId: number): string {
   weekEndObj.setDate(weekEndObj.getDate() + 1);
   const weekEnd = format(weekEndObj, 'yyyy-MM-dd');
 
-  return generateReport(chatId, weekStart, weekEnd, 'هفتگی / Weekly');
+  return generateReport(chatId, weekStart, weekEnd, 'weekly_report');
 }
 
 export function generateMonthlyReport(chatId: number): string {
@@ -70,14 +65,15 @@ export function generateMonthlyReport(chatId: number): string {
   monthEndObj.setDate(monthEndObj.getDate() + 1);
   const monthEnd = format(monthEndObj, 'yyyy-MM-dd');
 
-  return generateReport(chatId, monthStart, monthEnd, 'ماهانه / Monthly');
+  return generateReport(chatId, monthStart, monthEnd, 'monthly_report');
 }
 
 export function generateCustomReport(chatId: number, startDate: string, endDate: string): string {
-  return generateReport(chatId, startDate, endDate, 'سفارشی / Custom');
+  return generateReport(chatId, startDate, endDate, 'weekly_report');
 }
 
-function generateReport(chatId: number, startDate: string, endDate: string, period: string): string {
+function generateReport(chatId: number, startDate: string, endDate: string, periodKey: string): string {
+  const lang = getLanguage(chatId);
   const expenses = getCategorySummary(chatId, startDate, endDate, 'expense');
   const income = getCategorySummary(chatId, startDate, endDate, 'income');
   const userExpenses = getUserSummary(chatId, startDate, endDate, 'expense');
@@ -88,46 +84,42 @@ function generateReport(chatId: number, startDate: string, endDate: string, peri
   const balance = totalIncome - totalExpenses;
 
   if (expenses.length === 0 && income.length === 0) {
-    return `📊 گزارش ${period} (${startDate} تا ${endDate})\n\nتراکنشی ثبت نشده.\nNo transactions recorded.`;
+    return `📊 ${msg(periodKey, lang)} (${startDate} — ${endDate})\n\n${msg('no_transactions', lang)}`;
   }
 
-  let report = `📊 گزارش ${period} (${startDate} تا ${endDate})\n\n`;
+  let report = `📊 ${msg(periodKey, lang)} (${startDate} — ${endDate})\n\n`;
 
-  // Income section
   if (income.length > 0) {
-    report += `💰 درآمد / INCOME: ${formatCurrency(totalIncome, income[0]?.currency || 'USD')}\n`;
+    report += `💰 ${msg('income_label', lang)}: ${formatCurrency(totalIncome, income[0]?.currency || 'IRT')}\n`;
     for (const inc of income) {
-      report += `  ${getCategoryEmoji(inc.category)} ${getCategoryLabel(inc.category)}: ${formatCurrency(inc.total, inc.currency || 'USD')} (${inc.count})\n`;
+      report += `  ${getCategoryEmoji(inc.category)} ${getCategoryLabel(inc.category, lang)}: ${formatCurrency(inc.total, inc.currency || 'IRT')} (${inc.count})\n`;
     }
     report += '\n';
   }
 
-  // Expense section
   if (expenses.length > 0) {
-    report += `💸 هزینه‌ها / EXPENSES: ${formatCurrency(totalExpenses, expenses[0]?.currency || 'USD')}\n`;
+    report += `💸 ${msg('expenses_label', lang)}: ${formatCurrency(totalExpenses, expenses[0]?.currency || 'IRT')}\n`;
     for (const exp of expenses) {
-      report += `  ${getCategoryEmoji(exp.category)} ${getCategoryLabel(exp.category)}: ${formatCurrency(exp.total, exp.currency || 'USD')} (${exp.count})\n`;
+      report += `  ${getCategoryEmoji(exp.category)} ${getCategoryLabel(exp.category, lang)}: ${formatCurrency(exp.total, exp.currency || 'IRT')} (${exp.count})\n`;
     }
     report += '\n';
   }
 
-  // Balance
   const balanceEmoji = balance >= 0 ? '✅' : '⚠️';
-  report += `${balanceEmoji} موجودی / BALANCE: ${formatCurrency(balance, expenses[0]?.currency || income[0]?.currency || 'USD')}\n\n`;
+  report += `${balanceEmoji} ${msg('balance_label', lang)}: ${formatCurrency(balance, expenses[0]?.currency || income[0]?.currency || 'IRT')}\n\n`;
 
-  // User breakdown
   if (userExpenses.length > 0) {
-    report += `👥 هزینه‌ها به تفکیک کاربر:\n`;
+    report += `👥 ${msg('expenses_by_user', lang)}\n`;
     for (const user of userExpenses) {
-      report += `  • ${user.username}: ${formatCurrency(user.total)}\n`;
+      report += `  • ${user.username}: ${formatCurrency(user.total, expenses[0]?.currency || 'IRT')}\n`;
     }
     report += '\n';
   }
 
   if (userIncome.length > 0) {
-    report += `👥 درآمد به تفکیک کاربر:\n`;
+    report += `👥 ${msg('income_by_user', lang)}\n`;
     for (const user of userIncome) {
-      report += `  • ${user.username}: ${formatCurrency(user.total)}\n`;
+      report += `  • ${user.username}: ${formatCurrency(user.total, income[0]?.currency || 'IRT')}\n`;
     }
   }
 
@@ -140,18 +132,19 @@ export function generateTransactionList(
   endDate?: string,
   type?: 'expense' | 'income'
 ): string {
+  const lang = getLanguage(chatId);
   const transactions = getTransactions(chatId, startDate, endDate, type);
 
   if (transactions.length === 0) {
-    return 'تراکنشی یافت نشد.\nNo transactions found.';
+    return msg('no_transactions', lang);
   }
 
-  const period = endDate ? `${startDate} تا ${endDate}` : `از ${startDate}`;
-  let list = `📋 تراکنش‌ها (${period}):\n\n`;
+  const period = endDate ? `${startDate} — ${endDate}` : `${msg('from_label', lang)} ${startDate}`;
+  let list = `📋 ${msg('transactions_list', lang)} (${period}):\n\n`;
   for (const t of transactions) {
     const emoji = t.type === 'expense' ? '💸' : '💰';
     const catEmoji = getCategoryEmoji(t.category);
-    list += `${emoji} #${t.id} | ${t.username} | ${formatCurrency(t.amount, t.currency)} | ${catEmoji} ${getCategoryLabel(t.category)} | ${t.description || t.original_message}\n`;
+    list += `${emoji} #${t.id} | ${t.username} | ${formatCurrency(t.amount, t.currency)} | ${catEmoji} ${getCategoryLabel(t.category, lang)} | ${t.description || t.original_message}\n`;
   }
 
   return list.trim();

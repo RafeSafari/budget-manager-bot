@@ -93,7 +93,7 @@ describe('Reports', () => {
 
     it('should return empty message for no transactions', () => {
       const report = generateCustomReport(999999, '2020-01-01', '2020-01-02');
-      expect(report).toContain('تراکنشی ثبت نشده');
+      expect(report).toContain('تراکنشی یافت نشد');
     });
   });
 

@@ -56,7 +56,9 @@ function getCategoryEmoji(category: string): string {
 export function generateWeeklyReport(chatId: number): string {
   const now = new Date();
   const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
-  const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const weekEndObj = endOfWeek(now, { weekStartsOn: 1 });
+  weekEndObj.setDate(weekEndObj.getDate() + 1);
+  const weekEnd = format(weekEndObj, 'yyyy-MM-dd');
 
   return generateReport(chatId, weekStart, weekEnd, 'هفتگی / Weekly');
 }
@@ -64,7 +66,9 @@ export function generateWeeklyReport(chatId: number): string {
 export function generateMonthlyReport(chatId: number): string {
   const now = new Date();
   const monthStart = format(startOfMonth(now), 'yyyy-MM-dd');
-  const monthEnd = format(endOfMonth(now), 'yyyy-MM-dd');
+  const monthEndObj = endOfMonth(now);
+  monthEndObj.setDate(monthEndObj.getDate() + 1);
+  const monthEnd = format(monthEndObj, 'yyyy-MM-dd');
 
   return generateReport(chatId, monthStart, monthEnd, 'ماهانه / Monthly');
 }
@@ -133,7 +137,7 @@ function generateReport(chatId: number, startDate: string, endDate: string, peri
 export function generateTransactionList(
   chatId: number,
   startDate: string,
-  endDate: string,
+  endDate?: string,
   type?: 'expense' | 'income'
 ): string {
   const transactions = getTransactions(chatId, startDate, endDate, type);
@@ -142,7 +146,8 @@ export function generateTransactionList(
     return 'تراکنشی یافت نشد.\nNo transactions found.';
   }
 
-  let list = `📋 تراکنش‌ها (${startDate} تا ${endDate}):\n\n`;
+  const period = endDate ? `${startDate} تا ${endDate}` : `از ${startDate}`;
+  let list = `📋 تراکنش‌ها (${period}):\n\n`;
   for (const t of transactions) {
     const emoji = t.type === 'expense' ? '💸' : '💰';
     const catEmoji = getCategoryEmoji(t.category);

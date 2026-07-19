@@ -73,10 +73,11 @@ bot.command('list', (ctx) => {
   if (!chatId) return ctx.reply('این دستور فقط در گروه کار می‌کند.\nThis command can only be used in a group.');
 
   const now = new Date();
-  const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const startDate = `${y}-${m}-01`;
 
-  const list = generateTransactionList(chatId, startDate, endDate);
+  const list = generateTransactionList(chatId, startDate);
   ctx.reply(list);
 });
 

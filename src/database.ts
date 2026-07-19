@@ -104,11 +104,16 @@ function queryAll(sql: string, params: any[] = []): any[] {
 export function getTransactions(
   chatId: number,
   startDate: string,
-  endDate: string,
+  endDate?: string,
   type?: 'expense' | 'income'
 ): Transaction[] {
-  let query = 'SELECT * FROM transactions WHERE chat_id = ? AND created_at >= ? AND created_at <= ?';
-  const params: any[] = [chatId, startDate, endDate];
+  let query = 'SELECT * FROM transactions WHERE chat_id = ? AND created_at >= ?';
+  const params: any[] = [chatId, startDate];
+
+  if (endDate) {
+    query += ' AND created_at <= ?';
+    params.push(endDate);
+  }
 
   if (type) {
     query += ' AND type = ?';

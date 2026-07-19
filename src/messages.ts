@@ -2,12 +2,12 @@ type Lang = 'fa' | 'en';
 
 const MESSAGES: Record<string, Record<Lang, string>> = {
   welcome: {
-    fa: '🤖 ربات مدیریت بودجه\n\nاین ربات هزینه‌ها و درآمدهای گروه را ردیابی می‌کند.\n\nدستورات:\n/weekly - گزارش هفتگی\n/monthly - گزارش ماهانه\n/list - لیست تراکنش‌ها\n/delete last - حذف آخرین تراکنش\n/delete <id> - حذف تراکنش\n/lang - تغییر زبان\n/help - راهنما',
-    en: '🤖 Budget Manager Bot\n\nThis bot tracks expenses and earnings in this group.\n\nCommands:\n/weekly - Weekly report\n/monthly - Monthly report\n/list - List transactions\n/delete last - Delete latest transaction\n/delete <id> - Delete transaction\n/lang - Switch language\n/help - Help',
+    fa: '🤖 ربات مدیریت بودجه\n\nاین ربات هزینه‌ها و درآمدهای گروه را ردیابی می‌کند.\n\nدستورات:\n/weekly - گزارش هفتگی\n/monthly - گزارش ماهانه\n/list - لیست تراکنش‌ها\n/delete last - حذف آخرین تراکنش\n/budget - تنظیم بودجه\n/export - خروجی CSV\n/lang - تغییر زبان\n/help - راهنما',
+    en: '🤖 Budget Manager Bot\n\nThis bot tracks expenses and earnings in this group.\n\nCommands:\n/weekly - Weekly report\n/monthly - Monthly report\n/list - List transactions\n/delete last - Delete latest transaction\n/budget - Set budget limits\n/export - Export CSV\n/lang - Switch language\n/help - Help',
   },
   help: {
-    fa: '📋 راهنمای دستورات:\n\n/weekly - گزارش هفتگی\n/monthly - گزارش ماهانه\n/list - لیست تراکنش‌ها\n/delete last - حذف آخرین تراکنش\n/delete <id> - حذف تراکنش\n/lang fa - فارسی\n/lang en - English\n\n💡 مثال:\n• "50 هزار خرج غذا"\n• "200 تومان تاکسی"\n• "حقوق 5 میلیون تومان"\n• "Spent 50 on food"',
-    en: '📋 Commands:\n\n/weekly - Weekly report\n/monthly - Monthly report\n/list - List transactions\n/delete last - Delete latest\n/delete <id> - Delete transaction\n/lang fa - فارسی\n/lang en - English\n\n💡 Examples:\n• "50 هزار خرج غذا"\n• "200 تومان تاکسی"\n• "Spent 50 on food"\n• "Earned 500 freelance"',
+    fa: '📋 راهنمای دستورات:\n\n/weekly - گزارش هفتگی\n/monthly - گزارش ماهانه\n/list - لیست تراکنش‌ها\n/delete last - حذف آخرین تراکنش\n/delete <id> - حذف تراکنش\n/budget Food 5000000 - تنظیم بودجه\n/budget - نمایش بودجه‌ها\n/budget off Food - حذف بودجه\n/export 2026-07 - خروجی CSV\n/lang fa - فارسی\n/lang en - English\n\n💡 مثال:\n• "50 هزار خرج غذا"\n• "200 تومان تاکسی"\n• "حقوق 5 میلیون تومان"\n• "Spent 50 on food"',
+    en: '📋 Commands:\n\n/weekly - Weekly report\n/monthly - Monthly report\n/list - List transactions\n/delete last - Delete latest\n/delete <id> - Delete transaction\n/budget Food 5000000 - Set budget\n/budget - Show budgets\n/budget off Food - Remove budget\n/export 2026-07 - Export CSV\n/lang fa - فارسی\n/lang en - English\n\n💡 Examples:\n• "50 هزار خرج غذا"\n• "200 تومان تاکسی"\n• "Spent 50 on food"\n• "Earned 500 freelance"',
   },
   group_only: {
     fa: 'این دستور فقط در گروه کار می‌کند.',

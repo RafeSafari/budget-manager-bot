@@ -323,7 +323,6 @@ function saveDatabase(): void {
 
 export function insertTransaction(t: Omit<Transaction, 'id'>): number {
   try {
-    console.log(`[DB] Inserting transaction: chat_id=${t.chat_id} user=${t.username} amount=${t.amount} ${t.currency} cat=${t.category}`);
     db.run(
       `INSERT INTO transactions (chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -332,7 +331,6 @@ export function insertTransaction(t: Omit<Transaction, 'id'>): number {
 
     const result = db.exec('SELECT last_insert_rowid() as id');
     const id = result[0]?.values[0]?.[0] as number;
-    console.log(`[DB] Inserted transaction #${id}, chat_id=${t.chat_id}`);
     saveDatabase();
     console.log(`[DB] Inserted transaction #${id}`);
     return id;
@@ -343,7 +341,6 @@ export function insertTransaction(t: Omit<Transaction, 'id'>): number {
 }
 
 export function queryAll(sql: string, params: any[] = []): any[] {
-  console.log(`[DB] queryAll: ${sql} params=${JSON.stringify(params)}`);
   const stmt = db.prepare(sql);
   stmt.bind(params);
 
@@ -352,7 +349,6 @@ export function queryAll(sql: string, params: any[] = []): any[] {
     rows.push(stmt.getAsObject());
   }
   stmt.free();
-  console.log(`[DB] queryAll result: ${rows.length} rows`);
   return rows;
 }
 
@@ -425,7 +421,6 @@ export function getLastTransaction(chatId: number): Transaction | null {
 
 export function getTransaction(id: number, chatId: number): Transaction | null {
   const rows = queryAll('SELECT * FROM transactions WHERE id = ? AND chat_id = ?', [id, chatId]);
-  console.log(`[DB] getTransaction(id=${id}, chatId=${chatId}) → ${rows.length} rows`);
   return rows.length > 0 ? rows[0] as Transaction : null;
 }
 

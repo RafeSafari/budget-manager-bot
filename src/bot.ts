@@ -314,14 +314,12 @@ bot.callbackQuery(/^del:(\d+)$/, async (ctx) => {
 bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
   const chatId = ctx.chat?.id;
   const txId = parseInt(ctx.match[1]);
-  console.log(`[CAT] Button pressed: txId=${txId} chatId=${chatId}`);
   if (!chatId) return;
 
   const lang = getLanguage(chatId);
 
   try {
-    const rows = queryAll('SELECT type FROM transactions WHERE id = ? AND chat_id = ?', [txId]) as any[];
-    console.log(`[CAT] Query result:`, rows);
+    const rows = queryAll('SELECT type FROM transactions WHERE id = ? AND chat_id = ?', [txId, chatId]) as any[];
     if (rows.length === 0) {
       await ctx.answerCallbackQuery({ text: 'Transaction not found', show_alert: true });
       return;
@@ -329,7 +327,6 @@ bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
 
     const txType = rows[0].type;
     const cats = getCategories(txType);
-    console.log(`[CAT] Categories:`, cats.map(c => c.name));
 
     const keyboard = new InlineKeyboard();
     for (const cat of cats) {
@@ -338,7 +335,6 @@ bot.callbackQuery(/^cat:(\d+)$/, async (ctx) => {
 
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(msg('select_category', lang), { reply_markup: keyboard });
-    console.log(`[CAT] Success`);
   } catch (error) {
     console.error('[CAT] Error:', error);
     try { await ctx.answerCallbackQuery({ text: 'Error', show_alert: true }); } catch {}
@@ -349,16 +345,13 @@ bot.callbackQuery(/^setcat:(\d+):(.+)$/, async (ctx) => {
   const chatId = ctx.chat?.id;
   const txId = parseInt(ctx.match[1]);
   const category = ctx.match[2];
-  console.log(`[SETCAT] txId=${txId} category=${category} chatId=${chatId}`);
   if (!chatId) return;
 
   try {
     const lang = getLanguage(chatId);
     const tx = getTransaction(txId, chatId);
-    console.log(`[SETCAT] Transaction:`, tx);
 
     const success = updateTransactionCategory(txId, chatId, category);
-    console.log(`[SETCAT] Update success:`, success);
     if (success) {
       if (tx) {
         learnFromCorrection(tx.original_message, category, tx.type);

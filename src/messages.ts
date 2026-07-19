@@ -125,6 +125,26 @@ const MESSAGES: Record<string, Record<Lang, string>> = {
     fa: 'حذف شد',
     en: 'Deleted',
   },
+  budget_set: {
+    fa: 'بودجه تنظیم شد.',
+    en: 'Budget set.',
+  },
+  budget_removed: {
+    fa: 'بودجه حذف شد.',
+    en: 'Budget removed.',
+  },
+  budget_not_found: {
+    fa: 'بودجه‌ای یافت نشد.',
+    en: 'No budget found.',
+  },
+  budget_exceeded: {
+    fa: 'بودجه تمام شد!',
+    en: 'Budget exceeded!',
+  },
+  budget_low: {
+    fa: 'بودجه رو به اتمام است.',
+    en: 'Budget running low.',
+  },
 };
 
 export function msg(key: string, lang: Lang = 'fa'): string {

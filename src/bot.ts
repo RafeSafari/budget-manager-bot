@@ -1,6 +1,6 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { categorizeMessage } from './categorizer';
-import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll, getCategories } from './database';
+import { insertTransaction, deleteTransaction, getLastTransaction, getTransaction, debugAllTransactions, getLanguage, setLanguage, updateTransactionCategory, queryAll, getCategories, setBudget, getBudgets, getBudget, deleteBudget, getSpentThisMonth } from './database';
 import { generateWeeklyReport, generateMonthlyReport, generateCustomReport, generateTransactionList } from './reports';
 import { msg } from './messages';
 import { learnFromCorrection } from './categorizer';
@@ -107,6 +107,88 @@ bot.command('debug', async (ctx) => {
   ctx.reply(out);
 });
 
+bot.command('budget', async (ctx) => {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+  const lang = getLanguage(chatId);
+  const args = ctx.message?.text?.split(' ');
+
+  if (!args || args.length < 2) {
+    const budgets = getBudgets(chatId);
+    if (budgets.length === 0) {
+      return ctx.reply(lang === 'fa'
+        ? 'بودجه‌ای تنظیم نشده.\n\nنحوه استفاده:\n/budget Food 5000000\n/budget off Food'
+        : 'No budgets set.\n\nUsage:\n/budget Food 5000000\n/budget off Food');
+    }
+    let out = lang === 'fa' ? '📊 بودجه‌های ماهانه:\n\n' : '📊 Monthly Budgets:\n\n';
+    for (const b of budgets) {
+      const spent = getSpentThisMonth(chatId, b.category);
+      const pct = b.amount > 0 ? Math.round((spent.total / b.amount) * 100) : 0;
+      const bar = pct >= 100 ? '🔴' : pct >= 80 ? '🟡' : '🟢';
+      out += `${bar} ${b.category}: ${spent.total.toLocaleString('fa-IR')} / ${b.amount.toLocaleString('fa-IR')} (${pct}%)\n`;
+    }
+    return ctx.reply(out);
+  }
+
+  const sub = args[1].toLowerCase();
+  if (sub === 'off' && args[2]) {
+    const category = args[2];
+    const success = deleteBudget(chatId, category);
+    return ctx.reply(success
+      ? (lang === 'fa' ? `✅ بودجه ${category} حذف شد.` : `✅ Budget for ${category} removed.`)
+      : (lang === 'fa' ? `❌ بودجه‌ای برای ${category} یافت نشد.` : `❌ No budget found for ${category}.`));
+  }
+
+  if (args.length < 3) {
+    return ctx.reply(lang === 'fa'
+      ? 'نحوه استفاده:\n/budget Food 5000000'
+      : 'Usage:\n/budget Food 5000000');
+  }
+
+  const category = args[1];
+  const amount = parseInt(args[2].replace(/[,\s]/g, ''));
+  if (isNaN(amount) || amount <= 0) {
+    return ctx.reply(lang === 'fa' ? 'مبلغ نامعتبر است.' : 'Invalid amount.');
+  }
+
+  setBudget(chatId, category, amount);
+  ctx.reply(lang === 'fa'
+    ? `✅ بودجه ${category}: ${amount.toLocaleString('fa-IR')} تومان (ماهانه)`
+    : `✅ Budget set: ${category}: ${amount.toLocaleString('fa-IR')} IRT (monthly)`);
+});
+
+bot.command('export', async (ctx) => {
+  const chatId = ctx.chat?.id;
+  if (!chatId) return;
+  const lang = getLanguage(chatId);
+  const args = ctx.message?.text?.split(' ');
+  const month = args?.[1] || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+
+  const [year, mon] = month.split('-').map(Number);
+  const startDate = `${year}-${String(mon).padStart(2, '0')}-01`;
+  const endDate = new Date(year, mon, 1).toISOString().split('T')[0];
+
+  const transactions = queryAll(
+    'SELECT * FROM transactions WHERE chat_id = ? AND created_at >= ? AND created_at < ? ORDER BY created_at',
+    [chatId, startDate, endDate]
+  ) as any[];
+
+  if (transactions.length === 0) {
+    return ctx.reply(lang === 'fa' ? 'تراکنشی یافت نشد.' : 'No transactions found.');
+  }
+
+  let csv = 'ID,Date,User,Type,Category,Amount,Currency,Description\n';
+  for (const t of transactions) {
+    csv += `${t.id},${t.created_at},${t.username},${t.type},${t.category},${t.amount},${t.currency},"${(t.description || t.original_message || '').replace(/"/g, '""')}"\n`;
+  }
+
+  const buffer = Buffer.from(csv, 'utf-8');
+  await ctx.replyWithDocument(
+    new (require('grammy').InputFile)(buffer, `budget-${month}.csv`),
+    { caption: lang === 'fa' ? `تراکنش‌های ${month}` : `Transactions for ${month}` }
+  );
+});
+
 bot.on('message:text', async (ctx) => {
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id;
@@ -169,6 +251,23 @@ bot.on('message:text', async (ctx) => {
         `Description: ${result.description || '—'}`,
         { reply_markup: keyboard }
       );
+
+      if (result.type === 'expense') {
+        const budget = getBudget(chatId, result.category);
+        if (budget) {
+          const spent = getSpentThisMonth(chatId, result.category);
+          const pct = budget.amount > 0 ? Math.round((spent.total / budget.amount) * 100) : 0;
+          if (pct >= 100) {
+            ctx.reply(lang === 'fa'
+              ? `⚠️ بودجه ${result.category} تمام شد!\n${spent.total.toLocaleString('fa-IR')} از ${budget.amount.toLocaleString('fa-IR')} تومان (${pct}%)`
+              : `⚠️ Budget for ${result.category} exceeded!\n${spent.total.toLocaleString('fa-IR')} / ${budget.amount.toLocaleString('fa-IR')} IRT (${pct}%)`);
+          } else if (pct >= 80) {
+            ctx.reply(lang === 'fa'
+              ? `🟡 بودجه ${result.category} رو به اتمام است.\n${spent.total.toLocaleString('fa-IR')} از ${budget.amount.toLocaleString('fa-IR')} تومان (${pct}%)`
+              : `🟡 Budget for ${result.category} running low.\n${spent.total.toLocaleString('fa-IR')} / ${budget.amount.toLocaleString('fa-IR')} IRT (${pct}%)`);
+          }
+        }
+      }
     } else {
       console.log(`[MSG] Not a transaction, skipping.`);
     }

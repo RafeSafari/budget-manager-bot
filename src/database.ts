@@ -26,6 +26,15 @@ export interface Category {
   usage_count: number;
 }
 
+export interface Budget {
+  id: number;
+  chat_id: number;
+  category: string;
+  amount: number;
+  currency: string;
+  period: 'monthly' | 'weekly';
+}
+
 let db: SqlJsDatabase;
 
 export async function initDatabase(): Promise<void> {
@@ -79,6 +88,18 @@ export async function initDatabase(): Promise<void> {
       keywords TEXT DEFAULT '[]',
       usage_count INTEGER DEFAULT 0,
       UNIQUE(name, type)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS budgets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id INTEGER NOT NULL,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT DEFAULT 'IRT',
+      period TEXT DEFAULT 'monthly',
+      UNIQUE(chat_id, category, period)
     )
   `);
 
@@ -302,6 +323,7 @@ function saveDatabase(): void {
 
 export function insertTransaction(t: Omit<Transaction, 'id'>): number {
   try {
+    console.log(`[DB] Inserting transaction: chat_id=${t.chat_id} user=${t.username} amount=${t.amount} ${t.currency} cat=${t.category}`);
     db.run(
       `INSERT INTO transactions (chat_id, user_id, username, amount, currency, category, type, description, original_message, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -310,6 +332,7 @@ export function insertTransaction(t: Omit<Transaction, 'id'>): number {
 
     const result = db.exec('SELECT last_insert_rowid() as id');
     const id = result[0]?.values[0]?.[0] as number;
+    console.log(`[DB] Inserted transaction #${id}, chat_id=${t.chat_id}`);
     saveDatabase();
     console.log(`[DB] Inserted transaction #${id}`);
     return id;
@@ -320,6 +343,7 @@ export function insertTransaction(t: Omit<Transaction, 'id'>): number {
 }
 
 export function queryAll(sql: string, params: any[] = []): any[] {
+  console.log(`[DB] queryAll: ${sql} params=${JSON.stringify(params)}`);
   const stmt = db.prepare(sql);
   stmt.bind(params);
 
@@ -328,6 +352,7 @@ export function queryAll(sql: string, params: any[] = []): any[] {
     rows.push(stmt.getAsObject());
   }
   stmt.free();
+  console.log(`[DB] queryAll result: ${rows.length} rows`);
   return rows;
 }
 
@@ -400,6 +425,7 @@ export function getLastTransaction(chatId: number): Transaction | null {
 
 export function getTransaction(id: number, chatId: number): Transaction | null {
   const rows = queryAll('SELECT * FROM transactions WHERE id = ? AND chat_id = ?', [id, chatId]);
+  console.log(`[DB] getTransaction(id=${id}, chatId=${chatId}) → ${rows.length} rows`);
   return rows.length > 0 ? rows[0] as Transaction : null;
 }
 
@@ -477,6 +503,40 @@ export function createCategory(name: string, type: 'expense' | 'income', keyword
     console.error('[DB] CREATE CATEGORY FAILED:', error);
     return -1;
   }
+}
+
+export function setBudget(chatId: number, category: string, amount: number, currency: string = 'IRT', period: string = 'monthly'): void {
+  db.run(
+    'INSERT OR REPLACE INTO budgets (chat_id, category, amount, currency, period) VALUES (?, ?, ?, ?, ?)',
+    [chatId, category, amount, currency, period]
+  );
+  saveDatabase();
+}
+
+export function getBudgets(chatId: number): Budget[] {
+  return queryAll('SELECT * FROM budgets WHERE chat_id = ?', [chatId]) as Budget[];
+}
+
+export function getBudget(chatId: number, category: string): Budget | null {
+  const rows = queryAll('SELECT * FROM budgets WHERE chat_id = ? AND category = ?', [chatId, category]);
+  return rows.length > 0 ? rows[0] as Budget : null;
+}
+
+export function deleteBudget(chatId: number, category: string): boolean {
+  db.run('DELETE FROM budgets WHERE chat_id = ? AND category = ?', [chatId, category]);
+  const changes = db.getRowsModified();
+  saveDatabase();
+  return changes > 0;
+}
+
+export function getSpentThisMonth(chatId: number, category: string): { total: number; currency: string } {
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const rows = queryAll(
+    'SELECT SUM(amount) as total, currency FROM transactions WHERE chat_id = ? AND category = ? AND type = ? AND created_at >= ? GROUP BY currency',
+    [chatId, category, 'expense', monthStart]
+  );
+  return rows.length > 0 ? { total: rows[0].total || 0, currency: rows[0].currency || 'IRT' } : { total: 0, currency: 'IRT' };
 }
 
 export function closeDatabase(): void {

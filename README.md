@@ -1,48 +1,49 @@
 # Budget Manager Bot
 
-Telegram bot that tracks expenses and earnings in group chats using AI categorization.
+Telegram bot that tracks expenses and earnings in group chats using AI categorization. Runs on **Telegram Serverless** — no servers, no hosting.
 
 ## Features
 
 - **Auto-categorize**: AI detects spending/earning from natural messages
 - **Group tracking**: Monitors all messages in a group chat
 - **Reports**: Weekly and monthly reports with category/user breakdowns
-- **SQLite storage**: Persistent data (resets on Railway redeploy)
+- **Persistent storage**: SQLite database built into Telegram Serverless
 
 ## Quick Start
 
-### 1. Get Keys
+### 1. Enable Serverless
 
-- **Telegram Bot**: @BotFather → `/newbot` → copy token
-- **OpenCode Zen**: [opencode.ai/auth](https://opencode.ai/auth) → Create API Key → copy key
+In [@BotFather](https://t.me/BotFather), open your bot → **Serverless** → turn it on.
 
-### 2. Configure
-
-```bash
-cp .env.example .env
-```
-
-Fill in `.env`:
-
-```env
-TELEGRAM_BOT_TOKEN=your_token
-OPENCODE_API_KEY=sk-your_key
-OPENCODE_MODEL=deepseek-v4-flash-free
-```
-
-### 3. Deploy to Railway
+### 2. Create project & login
 
 ```bash
-npm install -g @railway/cli
-railway login
-railway init          # or: railway link (if hitting free plan limit)
-railway up            # must run BEFORE setting variables
-railway variables set TELEGRAM_BOT_TOKEN=your_token
-railway variables set OPENCODE_API_KEY=your_key
-railway variables set OPENCODE_MODEL=deepseek-v4-flash-free
+npm install
+npx tgcloud login
 ```
 
-### 4. Add to Telegram Group
+Paste the CLI access token from @BotFather → your bot → Serverless → CLI Access.
+
+### 3. Set your API key (for AI categorization)
+
+The bot uses OpenCode Zen for AI categorization. Get a key at [opencode.ai/auth](https://opencode.ai/auth).
+
+Open the bot in Telegram and send:
+
+```
+/setkey OPENCODE_API_KEY sk-your_key_here
+```
+
+Or set it directly via the SDK — edit `lib/config.js` and hardcode it as a fallback.
+
+### 4. Deploy
+
+```bash
+npx tgcloud push        # deploy code
+npx tgcloud migrate     # create database tables
+```
+
+### 5. Add to Telegram Group
 
 Add bot as admin → send `/start`
 
@@ -56,34 +57,52 @@ Add bot as admin → send `/start`
 | `/monthly` | Monthly report |
 | `/list` | List transactions |
 | `/delete <id>` | Delete a transaction |
+| `/budget Food 5000000` | Set budget |
+| `/export 2026-07` | Export CSV |
+| `/lang fa` | Switch to Persian |
+| `/lang en` | Switch to English |
 
 ## Examples
 
-- "Spent 50 on groceries" → Expense, Food, $50
-- "Paid 30 for taxi" → Expense, Transport, $30
-- "Earned 500 from freelance" → Income, Freelance, $500
+- "50 هزار خرج غذا" → Expense, Food, 50000 IRT
+- "200 تومان تاکسی" → Expense, Transport, 200 IRT
+- "Spent 50 on food" → Expense, Food, $50
+- "Earned 500 freelance" → Income, Freelance, $500
 
-## Custom Categories
+## Local Development
 
-Edit `.env`:
-
-```env
-EXPENSE_CATEGORIES=Food,Transport,Shopping,Bills,Entertainment,Health,Education,Other
-INCOME_CATEGORIES=Salary,Freelance,Gift,Refund,Other
-```
-
-## Local Dev
+Test a handler without deploying:
 
 ```bash
-npm install
-npm run dev
+npx tgcloud run handlers/message '{ chat: { id: 1 }, text: "50 هزار خرج غذا" }'
+```
+
+Check what changed:
+
+```bash
+npx tgcloud status
+npx tgcloud diff
+```
+
+## Project Structure
+
+```
+schema.js              # Database tables
+handlers/
+  message.js           # Message + command handler
+  callback_query.js    # Inline keyboard handler
+lib/
+  config.js            # API key management
+  messages.js          # i18n (Persian/English)
+  database.js          # All database queries
+  categorizer.js       # AI transaction detection
+  reports.js           # Report generation
 ```
 
 ## Troubleshooting
 
-| Error | Fix |
+| Issue | Fix |
 |-------|-----|
-| "Free plan resource provision limit exceeded" | `railway link` — reuse an existing project |
-| "Project has no services" | Run `railway up` before setting variables |
-| `OPENAI_API_KEY` missing | `railway variables set OPENCODE_API_KEY=sk-...` |
 | Bot not replying | Make it admin + disable group privacy in @BotFather |
+| AI categorization not working | Set your API key: `/setkey OPENCODE_API_KEY sk-...` |
+| "Not found" on deploy | Run `npx tgcloud login` first |

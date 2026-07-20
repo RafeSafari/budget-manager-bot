@@ -4,6 +4,7 @@
   "description": "Telegram bot for tracking expenses and earnings in group chats - deployed on Cloudflare Workers",
   "main": "src/index.ts",
   "scripts": {
+    "setup": "node setup.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "jest",
@@ -18,11 +19,11 @@
     "openai": "^4.45.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.0.0",
+    "@cloudflare/workers-types": "^5.20260719.1",
     "@types/jest": "^30.0.0",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
     "typescript": "^5.4.0",
-    "wrangler": "^3.0.0"
+    "wrangler": "^4.112.0"
   }
 }

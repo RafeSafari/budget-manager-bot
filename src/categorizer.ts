@@ -51,9 +51,18 @@ function parsePersianNumber(text: string): number | null {
   return total > 0 ? total : null;
 }
 
+function convertPersianNumberWords(text: string): string {
+  let result = text;
+  for (const [word, val] of Object.entries(PERSIAN_NUMS)) {
+    result = result.replace(new RegExp(word, 'g'), val.toString());
+  }
+  return result;
+}
+
 const EXPENSE_PATTERNS = [
-  /(\d+[۰-۹]*\s*(?:هزار|میلیون)?\s*(?:تومان|تومن|ت\b))/i,
   /(خرج|خرید|خریدم|پرداخت|پرداخت کردم|花费|دادم|داده|داد|هزینه)/,
+  /(\d+[۰-۹]*\s*(?:هزار|میلیون)?\s*(?:تومان|تومن|ت\b))/i,
+  /(تومان|تومن)/i,
   /(\d+[۰-۹]*\s*(?:هزار|میلیون)?)/,
 ];
 
@@ -86,7 +95,7 @@ async function guessCategory(DB: D1Database, text: string, type: 'expense' | 'in
 }
 
 function regexParse(message: string): CategorizationResult | null {
-  const text = persianToEnglishDigits(message);
+  const text = persianToEnglishDigits(convertPersianNumberWords(message));
 
   const hasExpenseKeyword = EXPENSE_PATTERNS.some(p => p.test(message));
   const hasIncomeKeyword = INCOME_PATTERNS.some(p => p.test(message));
@@ -103,9 +112,16 @@ function regexParse(message: string): CategorizationResult | null {
 
   let amount = 0;
 
-  const millionMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:m\b|million|میلیون)/i);
-  if (millionMatch) {
-    amount = parseFloat(millionMatch[1]) * 1000000;
+  const persianAmount = parsePersianNumber(message);
+  if (persianAmount) {
+    amount = persianAmount;
+  }
+
+  if (amount === 0) {
+    const millionMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:m\b|million|میلیون)/i);
+    if (millionMatch) {
+      amount = parseFloat(millionMatch[1]) * 1000000;
+    }
   }
 
   if (amount === 0) {
@@ -127,11 +143,6 @@ function regexParse(message: string): CategorizationResult | null {
     if (numMatch) {
       amount = parseFloat(numMatch[1]);
     }
-  }
-
-  if (amount === 0) {
-    const parsed = parsePersianNumber(message);
-    if (parsed) amount = parsed;
   }
 
   if (amount <= 0) return null;
@@ -234,7 +245,15 @@ export async function categorizeMessage(DB: D1Database, message: string, openai:
     console.log(`[REGEX] Matched: type=${regexResult.type} amount=${regexResult.amount} currency=${regexResult.currency} category=${regexResult.category}`);
 
     if (regexResult.category === 'Other') {
-      console.log(`[REGEX] Category is Other, asking AI for better category`);
+      console.log(`[REGEX] Category is Other, trying keyword match`);
+      const kwCategory = await guessCategory(DB, message, regexResult.type);
+      if (kwCategory !== 'Other') {
+        console.log(`[KW] Matched category: ${kwCategory}`);
+        const result = { ...regexResult, category: kwCategory };
+        await incrementCategoryUsage(DB, result.category, result.type);
+        return result;
+      }
+      console.log(`[REGEX] No keyword match, asking AI`);
       const aiResult = await aiReCategorize(DB, message, regexResult, openai, model);
       await incrementCategoryUsage(DB, aiResult.category, aiResult.type);
       return aiResult;
@@ -244,7 +263,16 @@ export async function categorizeMessage(DB: D1Database, message: string, openai:
     return regexResult;
   }
 
-  console.log(`[REGEX] No match, falling back to AI`);
+  console.log(`[REGEX] No match, trying keyword match`);
+  const kwCategory = await guessCategory(DB, message, 'expense');
+  if (kwCategory !== 'Other') {
+    console.log(`[KW] Matched category: ${kwCategory}`);
+    const result: CategorizationResult = { isTransaction: true, type: 'expense', amount: 0, currency: 'IRT', category: kwCategory, description: message };
+    await incrementCategoryUsage(DB, result.category, result.type);
+    return result;
+  }
+
+  console.log(`[REGEX] No keyword match, falling back to AI`);
   const aiResult = await aiParse(DB, message, openai, model);
   if (aiResult.isTransaction) {
     await incrementCategoryUsage(DB, aiResult.category, aiResult.type);

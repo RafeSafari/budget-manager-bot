@@ -50,9 +50,9 @@ export async function insertTransaction(DB: D1Database, t: Omit<Transaction, 'id
 }
 
 export async function queryAll(DB: D1Database, sql: string, params: any[] = []): Promise<any[]> {
-  const stmt = DB.prepare(sql);
+  let stmt = DB.prepare(sql);
   if (params.length > 0) {
-    stmt.bind(...params);
+    stmt = stmt.bind(...params);
   }
   const { results } = await stmt.all();
   return results;

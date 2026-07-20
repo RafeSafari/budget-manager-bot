@@ -1,4 +1,3 @@
-import { webhookCallback } from 'grammy';
 import { createBot, Env } from './bot';
 import { getAllEnabledAutoSummaries } from './database';
 import { generateWeeklyReport } from './reports';
@@ -50,8 +49,15 @@ export default {
     }
 
     if (url.pathname === '/webhook' && request.method === 'POST') {
-      const bot = createBot(env);
-      return webhookCallback(bot, "cloudflare-mod")(request);
+      try {
+        const bot = createBot(env);
+        const update = await request.json() as any;
+        await bot.handleUpdate(update);
+        return new Response('OK', { status: 200 });
+      } catch (error) {
+        console.error('[WEBHOOK] Error:', error);
+        return new Response('Error', { status: 500 });
+      }
     }
 
     return new Response('Not Found', { status: 404 });

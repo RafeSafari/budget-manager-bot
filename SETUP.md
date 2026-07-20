@@ -1,153 +1,36 @@
 # Budget Manager Bot — Setup Guide
 
-## Overview
+## Quick Start (Recommended)
 
-Telegram bot that reads group messages, uses AI to detect spending/earning transactions, categorizes them, and stores them in D1. Generates weekly and monthly reports.
-
----
-
-## Prerequisites
-
-- Node.js 18+ installed
-- A Telegram account
-- An OpenCode Zen account ([free models available](https://opencode.ai/auth))
-- A GitHub account
-
----
-
-## Step 1: Create a Telegram Bot
-
-1. Open Telegram, search for **@BotFather**
-2. Send `/newbot`
-3. Pick a display name (e.g., `Budget Tracker`)
-4. Pick a username ending in `bot` (e.g., `my_budget_tracker_bot`)
-5. Copy the token BotFather sends you
-6. Get bot info: visit `https://api.telegram.org/bot<TOKEN>/getMe` and copy the JSON response
-
----
-
-## Step 2: Get OpenCode Zen API Key
-
-1. Go to [opencode.ai/auth](https://opencode.ai/auth)
-2. Sign up / log in
-3. Click **"Create API Key"**
-4. Copy the key (starts with `sk-...`)
-
----
-
-## Step 3: Install & Configure
+One command does everything:
 
 ```bash
 git clone https://github.com/you/budget-manager-bot.git
 cd budget-manager-bot
 npm install
+npm run setup
 ```
 
-Create `.dev.vars` (already exists as template):
+The wizard will:
+1. Ask for your Telegram bot token (from @BotFather)
+2. Ask for your OpenCode Zen API key (from opencode.ai/auth)
+3. Log you into Cloudflare (opens browser — free account)
+4. Create a D1 database, deploy the bot, and set the webhook
 
-```bash
-BOT_TOKEN=your_bot_token_here
-OPENCODE_API_KEY=sk-your_key_here
-BOT_INFO={"id":123456789,"is_bot":true,"first_name":"YourBot","username":"YourBot","can_join_groups":true,"can_read_all_group_messages":false,"supports_inline_queries":false,"can_connect_to_business":false}
-```
+That's it. The bot will be live at `https://budget-manager-bot.<your-subdomain>.workers.dev`
 
 ---
 
-## Step 4: Create D1 Database
+## After Setup
 
-```bash
-npx wrangler d1 create budget-bot-db
-```
-
-Copy the `database_id` from the output and paste it into `wrangler.toml`:
-
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "budget-bot-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-```
-
-Run migrations:
-
-```bash
-npx wrangler d1 migrations apply budget-bot-db
-```
-
----
-
-## Step 5: Deploy to Cloudflare
-
-### 5a. Set Secrets
-
-```bash
-npx wrangler secret put BOT_TOKEN
-# Paste your bot token when prompted
-
-npx wrangler secret put OPENCODE_API_KEY
-# Paste your API key when prompted
-```
-
-### 5b. Deploy
-
-```bash
-npm run deploy
-```
-
-Note the Worker URL from the output (e.g., `budget-manager-bot.your-subdomain.workers.dev`).
-
-### 5c. Set Telegram Webhook
-
-```bash
-curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://budget-manager-bot.<YOUR_SUBDOMAIN>.workers.dev/webhook"
-```
-
-You should see: `{"ok":true,"result":true,"description":"Webhook was set"}`
-
----
-
-## Local Testing (Optional)
-
-The bot uses webhook mode, so Telegram needs a public URL. To test locally before deploying:
-
-```bash
-# Terminal 1: start dev server
-npm run dev
-
-# Terminal 2: expose via tunnel
-npx cloudflared tunnel --url http://localhost:8787
-```
-
-Copy the public URL (e.g., `https://xxxx.trycloudflare.com`) and set the webhook:
-
-```bash
-curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://xxxx.trycloudflare.com/webhook"
-```
-
-> Remember to reset the webhook to your deployed Worker URL after testing.
-
----
-
-## Step 6: Add Bot to Telegram Group
-
-1. Open your group → **Add Members** → search for your bot
-2. Add it, then go to **Administrators** → make it an admin
+1. Add your bot to a Telegram group
+2. Make it an **admin** (required to read messages)
 3. Send `/start` in the group
+4. Type a message like `50 lunch` or `۵۰ هزار ناهار` — the bot will record it
 
 ---
 
-## Step 7: Usage
-
-Type naturally in the group:
-
-| You type | Bot records |
-|---|---|
-| `Spent 50 on groceries` | Expense — Food — $50 |
-| `Paid 30 for taxi` | Expense — Transport — $30 |
-| `Earned 500 from freelance` | Income — Freelance — $500 |
-| `50 هزار خرج غذا` | Expense — Food — 50,000 IRT |
-
-### Commands
+## Commands
 
 | Command | Description |
 |---|---|
@@ -156,11 +39,27 @@ Type naturally in the group:
 | `/weekly` | Weekly report |
 | `/monthly` | Monthly report |
 | `/list` | List current month's transactions |
-| `/delete <id>` | Delete a transaction |
-| `/budget` | Set budget limits |
-| `/export` | Export CSV |
-| `/autosummary` | Auto-scheduled reports |
-| `/lang` | Switch language (fa/en) |
+| `/delete last` | Delete last transaction |
+| `/budget Food 5000000` | Set monthly budget for a category |
+| `/export` | Export as CSV |
+| `/autosummary daily 09:00` | Auto-send daily reports |
+| `/lang fa` or `/lang en` | Switch language |
+
+---
+
+## Local Development
+
+```bash
+npm run dev
+```
+
+The bot runs at `http://localhost:8787`. To receive Telegram updates locally, you need a public URL:
+
+```bash
+npx cloudflared tunnel --url http://localhost:8787
+```
+
+Then set the webhook to the tunnel URL.
 
 ---
 
@@ -172,39 +71,83 @@ npm run deploy
 
 ---
 
+## Manual Setup (Advanced)
+
+If the wizard doesn't work, you can set up manually — see the steps below.
+
+<details>
+<summary>Click to expand manual setup</summary>
+
+### 1. Create Telegram Bot
+
+- Open Telegram, search for **@BotFather**
+- Send `/newbot`, pick a name and username
+- Copy the token
+
+### 2. Get OpenCode API Key
+
+- Go to [opencode.ai/auth](https://opencode.ai/auth)
+- Sign up / log in, create an API key
+
+### 3. Create D1 Database
+
+```bash
+npx wrangler d1 create budget-bot-db
+```
+
+Copy the `database_id` into `wrangler.toml`.
+
+### 4. Set Secrets
+
+```bash
+echo "YOUR_BOT_TOKEN" | npx wrangler secret put BOT_TOKEN
+echo "YOUR_API_KEY" | npx wrangler secret put OPENCODE_API_KEY
+```
+
+### 5. Apply Migrations
+
+```bash
+npx wrangler d1 migrations apply budget-bot-db --remote
+```
+
+### 6. Deploy
+
+```bash
+npx wrangler deploy
+```
+
+### 7. Set Webhook
+
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://YOUR-URL.workers.dev/webhook"
+```
+
+</details>
+
+---
+
 ## Troubleshooting
 
-### Webhook not receiving updates
+**Bot not replying in group?**
+- Make sure it's an **admin** in the group
+- Disable privacy mode: @BotFather → `/mybots` → your bot → **Bot Settings** → **Group Privacy** → **Turn off**
 
-Verify webhook is set:
-
+**Webhook not working?**
 ```bash
 curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
 ```
 
-If not set, re-run the `setWebhook` curl command.
-
-### Bot not replying
-
-- Make sure the bot is an **admin** in the group
-- Disable group privacy: @BotFather → `/mybots` → your bot → **Bot Settings** → **Group Privacy** → **Turn off**
-
-### D1 errors
-
-Check migrations are applied:
-
+**D1 errors?**
 ```bash
-npx wrangler d1 migrations apply budget-bot-db
+npx wrangler d1 migrations apply budget-bot-db --remote
 ```
-
-### Cron not firing
-
-Cloudflare Cron Triggers have a minimum interval of 1 minute. Check `wrangler.toml` for the cron schedule.
 
 ---
 
 ## Models
 
-**Free:** `deepseek-v4-flash-free`, `mimo-v2.5-free`, `nemotron-3-ultra-free`, `big-pickle`
+**Free:** `deepseek-v4-flash-free`, `mimo-v2.5-free`, `nemotron-3-ultra-free`
 
-**Paid (cheap):** `deepseek-v4-flash` ($0.14/$0.28 per M tokens)
+**Paid:** `deepseek-v4-flash` ($0.14/$0.28 per M tokens)
+
+Change model: `npx wrangler var put OPENCODE_MODEL --value "model-name"`

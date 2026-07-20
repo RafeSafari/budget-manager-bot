@@ -76,19 +76,9 @@ npx wrangler d1 migrations apply budget-bot-db
 
 ---
 
-## Step 5: Test Locally
+## Step 5: Deploy to Cloudflare
 
-```bash
-npm run dev
-```
-
-Your bot is now running locally via Cloudflare's dev runtime.
-
----
-
-## Step 6: Deploy to Cloudflare
-
-### 6a. Set Secrets
+### 5a. Set Secrets
 
 ```bash
 npx wrangler secret put BOT_TOKEN
@@ -98,7 +88,7 @@ npx wrangler secret put OPENCODE_API_KEY
 # Paste your API key when prompted
 ```
 
-### 6b. Deploy
+### 5b. Deploy
 
 ```bash
 npm run deploy
@@ -106,7 +96,7 @@ npm run deploy
 
 Note the Worker URL from the output (e.g., `budget-manager-bot.your-subdomain.workers.dev`).
 
-### 6c. Set Telegram Webhook
+### 5c. Set Telegram Webhook
 
 ```bash
 curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://budget-manager-bot.<YOUR_SUBDOMAIN>.workers.dev/webhook"
@@ -116,7 +106,29 @@ You should see: `{"ok":true,"result":true,"description":"Webhook was set"}`
 
 ---
 
-## Step 7: Add Bot to Telegram Group
+## Local Testing (Optional)
+
+The bot uses webhook mode, so Telegram needs a public URL. To test locally before deploying:
+
+```bash
+# Terminal 1: start dev server
+npm run dev
+
+# Terminal 2: expose via tunnel
+npx cloudflared tunnel --url http://localhost:8787
+```
+
+Copy the public URL (e.g., `https://xxxx.trycloudflare.com`) and set the webhook:
+
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://xxxx.trycloudflare.com/webhook"
+```
+
+> Remember to reset the webhook to your deployed Worker URL after testing.
+
+---
+
+## Step 6: Add Bot to Telegram Group
 
 1. Open your group → **Add Members** → search for your bot
 2. Add it, then go to **Administrators** → make it an admin
@@ -124,7 +136,7 @@ You should see: `{"ok":true,"result":true,"description":"Webhook was set"}`
 
 ---
 
-## Step 8: Usage
+## Step 7: Usage
 
 Type naturally in the group:
 
